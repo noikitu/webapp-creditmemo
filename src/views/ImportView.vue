@@ -5,7 +5,6 @@
   import { UploadCloud, FileText } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
-  import { Badge } from '@/components/ui/badge';
   import { useMemoStore } from '@/stores/memo';
   import { cn } from '@/lib/utils';
 
@@ -37,10 +36,7 @@
 
 <template>
   <div class="max-w-5xl mx-auto px-8 py-10">
-    <div class="flex items-center gap-3 mb-1">
-      <h1 class="text-2xl font-semibold">Import a memo</h1>
-      <Badge>Extract</Badge>
-    </div>
+    <h1 class="text-2xl font-semibold mb-1">Import a memo</h1>
     <p class="text-muted-foreground mb-8">
       Drag &amp; drop an existing memo (Word, PDF, …). Its structure is extracted and
       appended as a new draft you can edit.

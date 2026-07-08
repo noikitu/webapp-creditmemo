@@ -7,7 +7,6 @@
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
   import { Textarea } from '@/components/ui/textarea';
-  import { Badge } from '@/components/ui/badge';
   import { Separator } from '@/components/ui/separator';
   import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
@@ -68,10 +67,7 @@
 
 <template>
   <div class="max-w-5xl mx-auto px-8 py-10">
-    <div class="flex items-center gap-3 mb-1">
-      <h1 class="text-2xl font-semibold">Memo structure</h1>
-      <Badge>Builder</Badge>
-    </div>
+    <h1 class="text-2xl font-semibold mb-1">Memo structure</h1>
     <p class="text-muted-foreground mb-8">
       Give the memo a title, fill in each section, reorder them, then confirm the structure or run the agent.
     </p>
@@ -217,6 +213,14 @@
     font-size: .78rem; line-height: 1.5;
   }
   .prose-memo :deep(.memo-code code) { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+
+  /* Matplotlib chart rendered from a <python> block */
+  .prose-memo :deep(.py-chart) { margin: .6rem 0; }
+  .prose-memo :deep(.py-chart-img) {
+    max-width: 100%; height: auto;
+    border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card);
+  }
+  .prose-memo :deep(.py-loading) { font-size: .8125rem; color: var(--muted-foreground); }
 
   /* KaTeX display spacing */
   .prose-memo :deep(.katex-display) { margin: .5rem 0; overflow-x: auto; overflow-y: hidden; }

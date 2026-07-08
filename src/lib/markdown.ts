@@ -77,16 +77,28 @@ function latexTableEnv(inner: string): string {
 
 const MATH_RE = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+?\$/g;
 
+let pyCounter = 0;
+
+export interface PyChart { id: string; code: string; }
+export interface RichResult { html: string; charts: PyChart[]; }
+
+export function codeBlock(code: string): string {
+  return '<pre class="memo-code"><code>' + escapeHtml(code.trim()) + '</code></pre>';
+}
+
 // ---- Full pipeline -------------------------------------------------------
-export function renderRich(src: string): string {
-  if (!src) return '';
+export function renderRich(src: string): RichResult {
+  if (!src) return { html: '', charts: [] };
   const blocks: string[] = [];
   const math: string[] = [];
+  const charts: PyChart[] = [];
   let s = String(src);
 
-  // <python> code blocks (frontend prototype: shown as code, not executed)
+  // <python> code blocks -> chart placeholder (filled by /run_python later)
   s = s.replace(/<python>([\s\S]*?)<\/python>/gi, (_m, code) => {
-    blocks.push('<pre class="memo-code"><code>' + escapeHtml(code.trim()) + '</code></pre>');
+    const id = 'pychart-' + (++pyCounter);
+    charts.push({ id, code: String(code).trim() });
+    blocks.push('<div class="py-chart" id="' + id + '"><span class="py-loading">Generating chart…</span></div>');
     return '\n\n@@BLOCK' + (blocks.length - 1) + '@@\n\n';
   });
   // LaTeX tables -> HTML
@@ -106,7 +118,7 @@ export function renderRich(src: string): string {
   html = html
     .replace(/<p>\s*@@BLOCK(\d+)@@\s*<\/p>/g, (_m, i) => blocks[+i])
     .replace(/@@BLOCK(\d+)@@/g, (_m, i) => blocks[+i]);
-  return html;
+  return { html, charts };
 }
 
 export function typesetMath(el: HTMLElement): void {

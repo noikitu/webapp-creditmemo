@@ -5,7 +5,6 @@
   import { Plus, UploadCloud, FileText, BarChart3 } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
-  import { Badge } from '@/components/ui/badge';
   import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
   } from '@/components/ui/dialog';
@@ -53,10 +52,7 @@
 <template>
   <div class="max-w-5xl mx-auto px-8 py-10">
     <div class="flex items-center justify-between mb-1">
-      <div class="flex items-center gap-3">
-        <h1 class="text-2xl font-semibold">Metrics</h1>
-        <Badge>{{ metrics.length }}</Badge>
-      </div>
+      <h1 class="text-2xl font-semibold">Metrics</h1>
       <Button @click="openDialog"><Plus class="h-4 w-4" /> Add Metrics</Button>
     </div>
     <p class="text-muted-foreground mb-8">
