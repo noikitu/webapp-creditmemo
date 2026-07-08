@@ -1,0 +1,122 @@
+// Rich renderer for agent paragraphs: Markdown + LaTeX tables + KaTeX math
+// + <python> code blocks. Dependency-free except KaTeX (bundled).
+import 'katex/dist/katex.min.css';
+import renderMathInElement from 'katex/contrib/auto-render';
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function inlineMd(t: string): string {
+  return t
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[^_])_([^_]+)_/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function renderMarkdown(src: string): string {
+  if (!src) return '';
+  const lines = escapeHtml(src).split(/\r?\n/);
+  const out: string[] = [];
+  let para: string[] = [];
+  let listType: 'ul' | 'ol' | null = null;
+
+  const flushPara = () => {
+    if (para.length) { out.push('<p>' + para.map(inlineMd).join('<br>') + '</p>'); para = []; }
+  };
+  const closeList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
+
+  for (const line of lines) {
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    const ul = /^\s*[-*+]\s+(.*)$/.exec(line);
+    const ol = /^\s*\d+\.\s+(.*)$/.exec(line);
+    if (/^\s*$/.test(line)) { flushPara(); closeList(); continue; }
+    if (h) { flushPara(); closeList(); out.push(`<h${h[1].length}>${inlineMd(h[2])}</h${h[1].length}>`); continue; }
+    if (ul) { flushPara(); if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; } out.push('<li>' + inlineMd(ul[1]) + '</li>'); continue; }
+    if (ol) { flushPara(); if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inlineMd(ol[1]) + '</li>'); continue; }
+    closeList(); para.push(line);
+  }
+  flushPara(); closeList();
+  return out.join('');
+}
+
+// ---- LaTeX tabular/table -> HTML table -----------------------------------
+function cleanLatexInline(s: string): string {
+  return escapeHtml(s)
+    .replace(/\\textbf\{([^}]*)\}/g, '<strong>$1</strong>')
+    .replace(/\\textit\{([^}]*)\}/g, '<em>$1</em>')
+    .replace(/\\%/g, '%').replace(/\\_/g, '_').replace(/\\\$/g, '$').replace(/\\#/g, '#')
+    .replace(/\\&/g, '&amp;')
+    .replace(/[{}]/g, '')
+    .trim();
+}
+
+function tabularToHtml(body: string): string {
+  body = body.replace(/\\(?:hline|centering|toprule|midrule|bottomrule)/g, '');
+  const rows = body.split(/\\\\/).map((r) => r.trim()).filter((r) => r.length);
+  let out = '<table class="memo-table">';
+  rows.forEach((row, ri) => {
+    const tag = ri === 0 ? 'th' : 'td';
+    const cells = row.split('&').map((c) => cleanLatexInline(c.trim()));
+    out += '<tr>' + cells.map((c) => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+  });
+  return out + '</table>';
+}
+
+function latexTableEnv(inner: string): string {
+  let caption = '';
+  const cm = /\\caption\{([^}]*)\}/.exec(inner);
+  if (cm) caption = cleanLatexInline(cm[1]);
+  const tm = /\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/.exec(inner);
+  const table = tm ? tabularToHtml(tm[1]) : '';
+  return '<figure class="memo-figure">' + table +
+    (caption ? '<figcaption>' + caption + '</figcaption>' : '') + '</figure>';
+}
+
+const MATH_RE = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+?\$/g;
+
+// ---- Full pipeline -------------------------------------------------------
+export function renderRich(src: string): string {
+  if (!src) return '';
+  const blocks: string[] = [];
+  const math: string[] = [];
+  let s = String(src);
+
+  // <python> code blocks (frontend prototype: shown as code, not executed)
+  s = s.replace(/<python>([\s\S]*?)<\/python>/gi, (_m, code) => {
+    blocks.push('<pre class="memo-code"><code>' + escapeHtml(code.trim()) + '</code></pre>');
+    return '\n\n@@BLOCK' + (blocks.length - 1) + '@@\n\n';
+  });
+  // LaTeX tables -> HTML
+  s = s.replace(/\\begin\{table\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{table\}/g, (_m, inner) => {
+    blocks.push(latexTableEnv(inner));
+    return '\n\n@@BLOCK' + (blocks.length - 1) + '@@\n\n';
+  });
+  s = s.replace(/\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g, (_m, body) => {
+    blocks.push(tabularToHtml(body));
+    return '\n\n@@BLOCK' + (blocks.length - 1) + '@@\n\n';
+  });
+  // Math spans -> placeholders (Markdown must not mangle _ and *)
+  s = s.replace(MATH_RE, (m) => { math.push(m); return '@@MATH' + (math.length - 1) + '@@'; });
+
+  let html = renderMarkdown(s);
+  html = html.replace(/@@MATH(\d+)@@/g, (_m, i) => escapeHtml(math[+i]));
+  html = html
+    .replace(/<p>\s*@@BLOCK(\d+)@@\s*<\/p>/g, (_m, i) => blocks[+i])
+    .replace(/@@BLOCK(\d+)@@/g, (_m, i) => blocks[+i]);
+  return html;
+}
+
+export function typesetMath(el: HTMLElement): void {
+  renderMathInElement(el, {
+    delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\[', right: '\\]', display: true },
+      { left: '\\(', right: '\\)', display: false },
+      { left: '$', right: '$', display: false },
+    ],
+    throwOnError: false,
+  });
+}

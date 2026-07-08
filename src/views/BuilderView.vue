@@ -1,0 +1,219 @@
+<script setup lang="ts">
+  import { computed, onMounted, ref } from 'vue';
+  import { storeToRefs } from 'pinia';
+  import { toast } from 'vue-sonner';
+  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser } from 'lucide-vue-next';
+  import { Card, CardContent } from '@/components/ui/card';
+  import { Button } from '@/components/ui/button';
+  import { Input } from '@/components/ui/input';
+  import { Textarea } from '@/components/ui/textarea';
+  import { Badge } from '@/components/ui/badge';
+  import { Separator } from '@/components/ui/separator';
+  import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
+  } from '@/components/ui/dialog';
+  import { useMemoStore } from '@/stores/memo';
+  import MemoContent from '@/components/MemoContent.vue';
+  import { cn } from '@/lib/utils';
+
+  const store = useMemoStore();
+  const { metricNames } = storeToRefs(store);
+  const memo = computed(() => store.currentMemo);
+  const running = ref(false);
+  const deleteOpen = ref(false);
+
+  onMounted(() => store.ensureSelection());
+
+  const hasGenerated = computed(() => memo.value && Object.keys(memo.value.generated).length > 0);
+
+  function generatedFor(title: string): string | undefined {
+    return memo.value?.generated[title.trim().toLowerCase()];
+  }
+
+  function validate(): boolean {
+    if (!memo.value) return false;
+    if (!memo.value.title.trim()) { toast.error('Please set a memo title first.'); return false; }
+    const empty = memo.value.blocks
+      .map((b, i) => (b.title.trim() ? null : i + 1))
+      .filter((x): x is number => x !== null);
+    if (empty.length) { toast.error(`Each section needs a title. Missing: ${empty.join(', ')}.`); return false; }
+    return true;
+  }
+
+  function confirmStructure() {
+    if (!validate()) return;
+    toast.success(`« ${memo.value!.title} » saved (${memo.value!.blocks.length} sections).`);
+  }
+
+  async function runAgent() {
+    if (!validate()) return;
+    running.value = true;
+    // Simulate the agent latency for the prototype.
+    await new Promise((r) => setTimeout(r, 700));
+    const n = store.runAgent();
+    running.value = false;
+    toast.success(`Agent finished — ${n} paragraph(s) generated.`);
+  }
+
+  function doDelete() {
+    if (memo.value) store.deleteMemo(memo.value.id);
+    deleteOpen.value = false;
+    toast.success('Memo deleted.');
+  }
+</script>
+
+<template>
+  <div class="max-w-5xl mx-auto px-8 py-10">
+    <div class="flex items-center gap-3 mb-1">
+      <h1 class="text-2xl font-semibold">Memo structure</h1>
+      <Badge>Builder</Badge>
+    </div>
+    <p class="text-muted-foreground mb-8">
+      Give the memo a title, fill in each section, reorder them, then confirm the structure or run the agent.
+    </p>
+
+    <template v-if="memo">
+      <!-- Memo title -->
+      <div class="mb-8">
+        <label class="text-sm mb-1.5 block" for="memo-title">Memo title</label>
+        <Input id="memo-title" v-model="memo.title"
+          placeholder="e.g. Acme Corp — 2026 annual credit review" class="max-w-xl" />
+      </div>
+
+      <!-- Sections -->
+      <div class="space-y-4">
+        <Card v-for="(block, i) in memo.blocks" :key="block.id">
+          <CardContent class="pt-6">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Section {{ i + 1 }}
+              </span>
+              <div class="flex items-center gap-1">
+                <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="i === 0"
+                  @click="store.moveBlock(i, i - 1)"><ChevronUp class="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="i === memo.blocks.length - 1"
+                  @click="store.moveBlock(i, i + 1)"><ChevronDown class="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" class="h-8 w-8 text-destructive"
+                  @click="store.removeBlock(block.id)"><Trash2 class="h-4 w-4" /></Button>
+              </div>
+            </div>
+
+            <Input v-model="block.title" placeholder="Title — e.g. Counterparty overview" class="mb-2 font-medium" />
+            <Textarea v-model="block.description" :rows="3"
+              placeholder="Description — expected content of this section…" class="mb-3" />
+
+            <div v-if="metricNames.length" class="mb-1">
+              <span class="text-xs font-medium text-muted-foreground">Metrics to compute</span>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                <button v-for="m in metricNames" :key="m" type="button"
+                  @click="store.toggleMetric(block.id, m)"
+                  :class="cn(
+                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                    block.metrics.includes(m)
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-secondary text-secondary-foreground border-transparent hover:border-input',
+                  )">{{ m }}</button>
+              </div>
+            </div>
+
+            <!-- Agent-generated paragraph -->
+            <div v-if="generatedFor(block.title)"
+              class="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                  <Sparkles class="h-3.5 w-3.5" /> Generated paragraph
+                </span>
+                <Button variant="ghost" size="icon" class="h-6 w-6"
+                  @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
+              </div>
+              <MemoContent class="prose-memo text-sm" :content="generatedFor(block.title)!" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Button variant="outline" class="w-full mt-4 border-dashed" @click="store.addBlock()">
+        <Plus class="h-4 w-4" /> Add a section
+      </Button>
+
+      <Button v-if="hasGenerated" variant="ghost" class="w-full mt-2 text-muted-foreground"
+        @click="store.clearGenerated()">
+        <Eraser class="h-4 w-4" /> Clear agent paragraphs
+      </Button>
+
+      <Separator class="my-6" />
+
+      <div class="flex items-center justify-end gap-2">
+        <Button variant="ghost" class="text-destructive mr-auto" @click="deleteOpen = true">
+          <Trash2 class="h-4 w-4" /> Delete this memo
+        </Button>
+        <Button variant="outline" :disabled="running" @click="runAgent">
+          <Sparkles class="h-4 w-4" /> {{ running ? 'Running…' : 'Run agent' }}
+        </Button>
+        <Button @click="confirmStructure"><Check class="h-4 w-4" /> Confirm structure</Button>
+      </div>
+    </template>
+
+    <Card v-else><CardContent class="py-10 text-center text-muted-foreground">
+      No memo selected. Create one from <strong>Saved memos</strong> or <strong>Import</strong>.
+    </CardContent></Card>
+
+    <!-- Delete confirmation -->
+    <Dialog v-model:open="deleteOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete this memo?</DialogTitle>
+          <DialogDescription>
+            This removes « {{ memo?.title || '(untitled)' }} » and its generated paragraphs.
+            This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child><Button variant="outline">Cancel</Button></DialogClose>
+          <Button variant="destructive" @click="doDelete">Yes, delete</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </div>
+</template>
+
+<style scoped>
+  .prose-memo :deep(h2) { font-size: 1rem; font-weight: 600; margin: 0 0 .35rem; }
+  .prose-memo :deep(p) { margin: 0 0 .6rem; line-height: 1.55; }
+  .prose-memo :deep(p:last-child) { margin-bottom: 0; }
+  .prose-memo :deep(strong) { font-weight: 600; }
+  .prose-memo :deep(ul), .prose-memo :deep(ol) { margin: 0 0 .6rem; padding-left: 1.25rem; }
+
+  /* LaTeX tables */
+  .prose-memo :deep(.memo-figure) { margin: .6rem 0; overflow-x: auto; }
+  .prose-memo :deep(.memo-table) {
+    border-collapse: collapse; width: 100%; font-size: .8125rem;
+    background: var(--card);
+  }
+  .prose-memo :deep(.memo-table th),
+  .prose-memo :deep(.memo-table td) {
+    border: 1px solid var(--border); padding: .4rem .7rem; text-align: left; vertical-align: top;
+  }
+  .prose-memo :deep(.memo-table th) {
+    background: color-mix(in oklab, var(--primary) 10%, transparent);
+    color: var(--primary); font-weight: 600;
+  }
+  .prose-memo :deep(.memo-table tr:nth-child(even) td) {
+    background: color-mix(in oklab, var(--primary) 4%, transparent);
+  }
+  .prose-memo :deep(.memo-figure figcaption) {
+    margin-top: .35rem; font-size: .75rem; color: var(--muted-foreground); font-style: italic;
+  }
+
+  /* <python> code blocks (prototype: displayed, not executed) */
+  .prose-memo :deep(.memo-code) {
+    margin: .6rem 0; padding: .7rem .85rem; overflow-x: auto;
+    background: color-mix(in oklab, var(--primary) 6%, transparent);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    font-size: .78rem; line-height: 1.5;
+  }
+  .prose-memo :deep(.memo-code code) { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+
+  /* KaTeX display spacing */
+  .prose-memo :deep(.katex-display) { margin: .5rem 0; overflow-x: auto; overflow-y: hidden; }
+</style>
