@@ -1,0 +1,22 @@
+{
+  "_comment": "Project library root: lib/external-libraries.json. The GIT import fills gitReferences. You must add the PARENT folder 'webapps' to pythonPath so `import credit_memo.backend...` resolves. Keep valid JSON — no trailing commas.",
+  "gitReferences": {
+    "webapps/credit_memo": {
+      "remote": "https://github.com/noikitu/webapp-creditmemo.git",
+      "checkout": "main",
+      "remotePath": "",
+      "lastHash": "",
+      "conflictingFiles": [],
+      "resolvedFiles": [],
+      "faultyHash": "",
+      "isDirty": false
+    }
+  },
+  "pythonPath": [
+    "python",
+    "webapps",
+    "webapps/credit_memo"
+  ],
+  "rsrcPath": ["R"],
+  "importLibrariesFromProjects": []
+}

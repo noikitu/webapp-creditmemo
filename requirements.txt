@@ -1,0 +1,11 @@
+# Code env for the DSS webapp backend. The essential line is `webaiku`
+# (installed from GitHub → the DSS instance needs access to github.com to build
+# the env). `dataiku` itself is provided by DSS.
+Flask
+flask_cors
+pandas
+numpy
+matplotlib
+python-dotenv
+webaiku @ git+https://github.com/dataiku/solutions-contrib.git@main#egg=webaiku&subdirectory=bs-infra
+dataiku-api-client

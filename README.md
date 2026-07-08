@@ -1,47 +1,70 @@
-# Credit Memo — standardized webapp
+# Credit Memo — DSS webapp (WEBAIKU)
 
-A standardized **Dataiku-style** UI for the Credit Memo structure builder, built
-with the `dataiku-webapp` design system.
+A Dataiku **STANDARD project webapp** built as a Vue 3 SPA + Flask backend,
+versioned in Git and served through the project library with **WEBAIKU** (the
+"thin webapp" pattern). Package name (library folder): **`credit_memo`**.
 
-- **Stack:** Vue 3 (`<script setup>`) · vue-router · pinia · Vite · Tailwind CSS v4 · shadcn-vue · lucide icons · Inter font · KaTeX.
-- **Scope:** frontend-only prototype. All data is **mocked** in `src/stores/memo.ts`
-  (no Dataiku backend). The agent run, import, and metric extraction are simulated;
-  wire them to the DSS endpoints later.
+## Architecture
 
-## Run
+- **Frontend** — Vue 3 + Vite + Tailwind v4 + shadcn-vue on the Dataiku design
+  system. Renders UI and calls the backend over HTTP (`src/api.ts`). Built to
+  `dist/` (committed).
+- **Backend** — a Flask **Blueprint** (`backend/api/memo_api.py`, `url_prefix="/api"`)
+  that reads/writes DSS datasets, folders and the agent, returning JSON.
+- They meet at `/api`: locally via a Vite proxy, in DSS via `getWebAppBackendUrl()`.
+
+```
+backend/            Flask blueprint + DSS entry points (wsgi_dss / wsgi_local)
+  config.py         dataset names, folder ids, agent name  ← verify per project
+  api/memo_api.py   all endpoints (/metrics /memos /memo /structure /run_agent …)
+src/                Vue SPA (views, components, stores, api.ts, lib/markdown.ts)
+dist/               BUILT SPA — committed (DSS serves it, never builds)
+webapp/             thin-webapp instance snippets (JS + Python tab)
+config/             external-libraries.json snippet (pythonPath)
+requirements.txt    code env (webaiku, pandas, matplotlib, …)
+```
+
+## Local development
 
 ```bash
 pnpm install
-pnpm dev      # → http://127.0.0.1:5175
+pnpm dev        # http://127.0.0.1:5175 — /api proxied to the Flask dev backend
+
+# backend (needs webaiku + a DSS connection):
+VITE_API_PORT=5000 python -m credit_memo.backend.wsgi_local
+```
+Without a backend, the SPA falls back to **mock data** so the UI still runs.
+
+## Build & commit
+
+```bash
+pnpm build      # → dist/ (commit it: DSS pulls the repo and serves dist/)
+git commit -am "…" && git push
 ```
 
-## Pages (`src/views`)
+## Deploy to DSS
 
-| Route | Page | What it does |
-|---|---|---|
-| `/` | **Builder** | Memo title + sections (title / description / metric pills), reorder, run agent (mock), generated paragraphs, delete memo. |
-| `/saved` | **Saved memos** | Browse mock memos, open or delete. |
-| `/metrics` | **Metrics** | Metric catalog + "Add Metrics" dialog with drag & drop (mock BUILD_METRICS). |
-| `/import` | **Import** | Drag & drop a document to import a memo (mock BUILD_TEMPLATE). |
+1. **Library ← Git.** Project → Library editor (`</>`) → **GIT** → add reference:
+   repo URL, branch `main`, **target path `webapps/credit_memo`**.
+2. **Python path.** In `lib/external-libraries.json` add the **parent** `webapps`
+   to `pythonPath` (see `config/external-libraries.snippet.json`).
+3. **Code env** with `webaiku` installed (`requirements.txt`), or reuse one.
+4. **Thin webapp** (STANDARD, backend enabled + autostart):
+   - HTML tab: empty · CSS tab: empty
+   - JS tab: `webapp/js-bootstrap.js`
+   - Python tab: `webapp/python-tab.py`
+     (`from credit_memo.backend.wsgi_dss import init_dss_app; init_dss_app(app)`)
+   - Then **Restart backend**.
 
-## Rich agent paragraphs
+## Features
 
-`src/lib/markdown.ts` (`renderRich`) renders the agent's text with:
+Builder (title + sections with metric chips, reorder, run agent, delete),
+Saved memos, Metrics (+ add via drag & drop → `BUILD_METRICS`), Import (drag &
+drop → clears the Previous Memos PDF folder + rebuilds `structure_memo`).
 
-- **Markdown** (headings, bold/italic, lists, inline code),
-- **LaTeX tables** (`\begin{table}` / `\begin{tabular}`) → styled HTML tables,
-- **LaTeX math** (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`) → **KaTeX**,
-- **`<python>…</python>`** snippets → shown as a code block.
+Agent paragraphs render **Markdown + LaTeX tables + KaTeX math + `<python>` charts**.
+`<python>` snippets are executed server-side by `/run_python` (matplotlib → PNG);
+in the local mock they are shown as code.
 
-> Note: in this frontend-only version, `<python>` charts are **displayed as code**,
-> not executed. Chart execution needs the Dataiku Python backend (matplotlib →
-> PNG), as in the DSS standard webapp.
-
-## Structure
-
-- `src/style.css` — Dataiku design tokens (indigo primary, light sidebar, radius). **No `tailwind.config.js`** (Tailwind v4).
-- `src/components/ui/*` — shadcn-vue primitives.
-- `src/components/layout/*`, `src/layouts/DefaultLayout.vue` — app shell (collapsible icon sidebar that builds itself from route `meta`).
-- `src/components/MemoContent.vue` — renders `renderRich` output and typesets KaTeX.
-- `src/stores/memo.ts` — in-memory mock state + actions.
-- `src/lib/markdown.ts` — Markdown + LaTeX + math renderer.
+> Config is per-project: verify dataset names / folder ids in `backend/config.py`
+> against the target (`dku dataset list`, `dku managed-folder list`) before deploying.

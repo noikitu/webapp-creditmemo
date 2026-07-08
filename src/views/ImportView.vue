@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref } from 'vue';
+  import { ref, onMounted } from 'vue';
   import { useRouter } from 'vue-router';
   import { toast } from 'vue-sonner';
   import { UploadCloud, FileText } from 'lucide-vue-next';
@@ -12,6 +12,8 @@
   const store = useMemoStore();
   const router = useRouter();
 
+  onMounted(() => store.boot());
+
   const dragover = ref(false);
   const busy = ref(false);
   const fileInput = ref<HTMLInputElement | null>(null);
@@ -21,11 +23,15 @@
   async function handle(file: File | null | undefined) {
     if (!file) return;
     busy.value = true;
-    await new Promise((r) => setTimeout(r, 800)); // simulate BUILD_TEMPLATE
-    const memo = store.importMemo(file.name);
-    busy.value = false;
-    toast.success(`Imported « ${memo.title} ».`);
-    router.push({ name: 'builder' });
+    try {
+      const title = await store.importMemo(file);
+      toast.success(`Imported « ${title} ».`);
+      router.push({ name: 'builder' });
+    } catch (e) {
+      toast.error('Import failed: ' + (e as Error).message);
+    } finally {
+      busy.value = false;
+    }
   }
 </script>
 

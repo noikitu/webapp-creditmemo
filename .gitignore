@@ -8,9 +8,14 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist/ IS committed — WEBAIKU serves it and DSS does not build.
 dist-ssr
 *.local
+
+# Python
+__pycache__/
+*.pyc
+.env
 
 # Editor directories and files
 .vscode/*

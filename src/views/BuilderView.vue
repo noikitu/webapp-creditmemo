@@ -18,11 +18,11 @@
 
   const store = useMemoStore();
   const { metricNames } = storeToRefs(store);
-  const memo = computed(() => store.currentMemo);
+  const memo = computed(() => store.current);
   const running = ref(false);
   const deleteOpen = ref(false);
 
-  onMounted(() => store.ensureSelection());
+  onMounted(() => store.boot());
 
   const hasGenerated = computed(() => memo.value && Object.keys(memo.value.generated).length > 0);
 
@@ -40,23 +40,27 @@
     return true;
   }
 
-  function confirmStructure() {
+  async function confirmStructure() {
     if (!validate()) return;
+    await store.saveStructure();
     toast.success(`« ${memo.value!.title} » saved (${memo.value!.blocks.length} sections).`);
   }
 
   async function runAgent() {
     if (!validate()) return;
     running.value = true;
-    // Simulate the agent latency for the prototype.
-    await new Promise((r) => setTimeout(r, 700));
-    const n = store.runAgent();
-    running.value = false;
-    toast.success(`Agent finished — ${n} paragraph(s) generated.`);
+    try {
+      const n = await store.runAgent();
+      toast.success(`Agent finished — ${n} paragraph(s) generated.`);
+    } catch (e) {
+      toast.error('Agent run failed: ' + (e as Error).message);
+    } finally {
+      running.value = false;
+    }
   }
 
-  function doDelete() {
-    if (memo.value) store.deleteMemo(memo.value.id);
+  async function doDelete() {
+    if (memo.value) await store.deleteMemo(memo.value.title);
     deleteOpen.value = false;
     toast.success('Memo deleted.');
   }

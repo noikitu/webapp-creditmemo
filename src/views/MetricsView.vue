@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref } from 'vue';
+  import { ref, onMounted } from 'vue';
   import { storeToRefs } from 'pinia';
   import { toast } from 'vue-sonner';
   import { Plus, UploadCloud, FileText, BarChart3 } from 'lucide-vue-next';
@@ -14,6 +14,8 @@
 
   const store = useMemoStore();
   const { metrics } = storeToRefs(store);
+
+  onMounted(() => store.boot());
 
   const open = ref(false);
   const dragover = ref(false);
@@ -35,11 +37,16 @@
   async function confirm() {
     if (!pending.value.length) return;
     busy.value = true;
-    await new Promise((r) => setTimeout(r, 700)); // simulate BUILD_METRICS
-    store.addMetrics(pending.value.map((f) => f.name));
-    busy.value = false;
-    open.value = false;
-    toast.success(`Metrics updated from ${pending.value.length} document(s).`);
+    const n = pending.value.length;
+    try {
+      await store.addMetrics(pending.value.slice());
+      open.value = false;
+      toast.success(`Metrics updated from ${n} document(s).`);
+    } catch (e) {
+      toast.error('Failed: ' + (e as Error).message);
+    } finally {
+      busy.value = false;
+    }
   }
 </script>
 

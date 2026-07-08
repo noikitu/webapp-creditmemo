@@ -1,58 +1,47 @@
 import { defineStore } from 'pinia';
+import { api, type Metric } from '@/api';
 
-export interface Block {
-  id: number;
-  title: string;
-  description: string;
-  metrics: string[];
-}
+export interface Block { id: number; title: string; description: string; metrics: string[]; }
+export interface Memo { title: string; blocks: Block[]; generated: Record<string, string>; }
 
-export interface Memo {
-  id: number;
-  title: string;
-  blocks: Block[];
-  generated: Record<string, string>; // normalizedTitle -> markdown paragraph
-}
-
-export interface Metric {
-  metric: string;
-  description: string;
-}
-
-let uid = 100;
+let uid = 0;
 const nextId = () => ++uid;
+const emptyBlock = (): Block => ({ id: nextId(), title: '', description: '', metrics: [] });
 
-function emptyBlock(): Block {
-  return { id: nextId(), title: '', description: '', metrics: [] };
+function toBlocks(raw: { title: string; description: string; metrics: string }[]): Block[] {
+  return raw.map((b) => ({
+    id: nextId(),
+    title: b.title || '',
+    description: b.description || '',
+    metrics: String(b.metrics || '').split(',').map((s) => s.trim()).filter(Boolean),
+  }));
 }
 
-function seedMemo(title: string, blocks: Array<Partial<Block>>): Memo {
+function genMap(items: { title: string; content: string }[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  (items || []).forEach((it) => {
+    const k = (it.title || '').trim().toLowerCase();
+    if (k) m[k] = it.content || '';
+  });
+  return m;
+}
+
+function payload(memo: Memo) {
   return {
-    id: nextId(),
-    title,
-    blocks: blocks.map((b) => ({
-      id: nextId(),
-      title: b.title || '',
-      description: b.description || '',
-      metrics: b.metrics || [],
+    memo_title: memo.title.trim(),
+    blocks: memo.blocks.map((b) => ({
+      title: b.title.trim(),
+      description: b.description.trim(),
+      metrics: b.metrics.join(', '),
     })),
-    generated: {},
   };
 }
 
-// A mock "agent" that fabricates an on-topic paragraph for a block.
-// Demonstrates the rich renderer: Markdown, KaTeX math, LaTeX tables, <python>.
+// Mock "agent": rich paragraph (Markdown + KaTeX + LaTeX table + <python>).
 function mockParagraph(block: Block): string {
-  const intro =
-    `## ${block.title}\n\n` +
-    `${block.description || 'This section summarises the relevant findings for the memo.'} ` +
+  const intro = `## ${block.title}\n\n${block.description || 'This section summarises the relevant findings.'} ` +
     `Based on the available data, the analysis indicates a **stable** outlook.`;
-
-  const metricsLine = block.metrics.length
-    ? `\n\nKey metrics considered: **${block.metrics.join('**, **')}**.`
-    : '';
-
-  // On a "financial" section, showcase a formula + a LaTeX table + a chart snippet.
+  const metricsLine = block.metrics.length ? `\n\nKey metrics considered: **${block.metrics.join('**, **')}**.` : '';
   if (/financ|analysis|leverage/i.test(block.title)) {
     return intro + metricsLine +
       `\n\nThe leverage ratio is $\\frac{\\text{Net debt}}{\\text{EBITDA}} = 2.4$, within covenant limits.\n\n` +
@@ -60,123 +49,200 @@ function mockParagraph(block: Block): string {
       `\\textbf{Year} & \\textbf{Revenue (\\$m)} & \\textbf{EBITDA margin (\\%)} \\\\ \\hline\n` +
       `2022 & 120 & 20.73 \\\\ \\hline\n2023 & 134 & 20.14 \\\\ \\hline\n2024 & 151 & 19.13 \\\\ \\hline\n` +
       `\\end{tabular}\n\\caption{Revenue and EBITDA margin trend}\n\\end{table}\n\n` +
-      `<python>\nimport matplotlib.pyplot as plt\nyears = ['2022', '2023', '2024']\nmargins = [20.73, 20.14, 19.13]\nplt.plot(years, margins, marker='o')\nplt.title('EBITDA Margin Trend (%)')\nplt.show()\n</python>`;
+      `<python>\nimport matplotlib.pyplot as plt\nplt.plot(['2022','2023','2024'], [20.73, 20.14, 19.13], marker='o')\nplt.title('EBITDA Margin Trend (%)')\nplt.show()\n</python>`;
   }
-  return intro +
-    ` A few areas warrant close monitoring over the next reporting period.${metricsLine}`;
+  return intro + ` A few areas warrant close monitoring over the next reporting period.${metricsLine}`;
+}
+
+function mockSeed(): { metrics: Metric[]; memos: string[]; store: Record<string, Memo> } {
+  const metrics: Metric[] = [
+    { metric: 'Net debt / EBITDA', description: 'Leverage ratio of the counterparty.' },
+    { metric: 'Interest coverage', description: 'EBIT divided by interest expense.' },
+    { metric: 'Current ratio', description: 'Current assets over current liabilities.' },
+    { metric: 'Debt / Equity', description: 'Total debt relative to shareholder equity.' },
+    { metric: 'Revenue growth', description: 'Year-over-year revenue change.' },
+    { metric: 'Free cash flow', description: 'Operating cash flow minus capex.' },
+  ];
+  const store: Record<string, Memo> = {
+    'Acme Corp — 2026 annual credit review': {
+      title: 'Acme Corp — 2026 annual credit review',
+      blocks: toBlocks([
+        { title: 'Counterparty overview', description: 'Business profile, ownership and sector.', metrics: '' },
+        { title: 'Financial analysis', description: 'Leverage, liquidity and profitability.', metrics: 'Net debt / EBITDA, Interest coverage' },
+        { title: 'Risks & mitigants', description: 'Main risks and how they are mitigated.', metrics: '' },
+      ]),
+      generated: {},
+    },
+    'Globex Ltd — facility renewal': {
+      title: 'Globex Ltd — facility renewal',
+      blocks: toBlocks([
+        { title: 'Purpose of the request', description: 'Renewal of the revolving facility.', metrics: '' },
+        { title: 'Financial analysis', description: 'Trend over the last three years.', metrics: 'Revenue growth, Free cash flow' },
+      ]),
+      generated: {},
+    },
+  };
+  return { metrics, memos: Object.keys(store), store };
 }
 
 export const useMemoStore = defineStore('memo', {
   state: () => ({
-    metrics: [
-      { metric: 'Net debt / EBITDA', description: 'Leverage ratio of the counterparty.' },
-      { metric: 'Interest coverage', description: 'EBIT divided by interest expense.' },
-      { metric: 'Current ratio', description: 'Current assets over current liabilities.' },
-      { metric: 'Debt / Equity', description: 'Total debt relative to shareholder equity.' },
-      { metric: 'Revenue growth', description: 'Year-over-year revenue change.' },
-      { metric: 'Free cash flow', description: 'Operating cash flow minus capex.' },
-    ] as Metric[],
-    memos: [
-      seedMemo('Acme Corp — 2026 annual credit review', [
-        { title: 'Counterparty overview', description: 'Business profile, ownership and sector.', metrics: [] },
-        { title: 'Financial analysis', description: 'Leverage, liquidity and profitability.', metrics: ['Net debt / EBITDA', 'Interest coverage'] },
-        { title: 'Risks & mitigants', description: 'Main risks and how they are mitigated.', metrics: [] },
-      ]),
-      seedMemo('Globex Ltd — facility renewal', [
-        { title: 'Purpose of the request', description: 'Renewal of the revolving facility.', metrics: [] },
-        { title: 'Financial analysis', description: 'Trend over the last three years.', metrics: ['Revenue growth', 'Free cash flow'] },
-      ]),
-    ] as Memo[],
-    currentMemoId: null as number | null,
+    booted: false,
+    backendReady: false,
+    metrics: [] as Metric[],
+    memos: [] as string[],                 // ordered memo titles (sidebar)
+    store: {} as Record<string, Memo>,     // loaded memos, keyed by title
+    current: null as Memo | null,
   }),
 
   getters: {
-    currentMemo(state): Memo | null {
-      return state.memos.find((m) => m.id === state.currentMemoId) || null;
-    },
-    metricNames(state): string[] {
-      return state.metrics.map((m) => m.metric);
-    },
+    metricNames: (s): string[] => s.metrics.map((m) => m.metric),
+    blockCount: (s) => (title: string): number | null =>
+      s.store[title] ? s.store[title].blocks.length : null,
   },
 
   actions: {
-    ensureSelection() {
-      if (this.currentMemoId == null && this.memos.length) {
-        this.currentMemoId = this.memos[0].id;
+    async boot() {
+      if (this.booted) return;
+      this.booted = true;
+      try {
+        const [m, mm] = await Promise.all([api.metrics(), api.memos()]);
+        this.metrics = m.items;
+        this.memos = mm.memos;
+        this.backendReady = true;
+        if (this.memos.length) await this.selectMemo(this.memos[0]);
+        else this.newMemo();
+      } catch {
+        // No DSS backend (local dev): fall back to mock data.
+        const s = mockSeed();
+        this.metrics = s.metrics; this.store = s.store; this.memos = s.memos;
+        this.current = this.store[this.memos[0]] || null;
       }
     },
-    selectMemo(id: number) {
-      this.currentMemoId = id;
+
+    async selectMemo(title: string) {
+      if (this.store[title]) { this.current = this.store[title]; return; }
+      if (this.backendReady) {
+        try {
+          const d = await api.memo(title);
+          const memo: Memo = {
+            title: d.memo_title || title,
+            blocks: toBlocks(d.blocks),
+            generated: genMap(d.generated),
+          };
+          if (!memo.blocks.length) memo.blocks = [emptyBlock()];
+          this.store[title] = memo; this.current = memo; return;
+        } catch { /* fall through */ }
+      }
+      this.current = { title, blocks: [emptyBlock()], generated: {} };
     },
-    newMemo() {
-      const memo: Memo = { id: nextId(), title: '', blocks: [emptyBlock()], generated: {} };
-      this.memos.unshift(memo);
-      this.currentMemoId = memo.id;
-      return memo;
-    },
-    addBlock() {
-      this.currentMemo?.blocks.push(emptyBlock());
-    },
-    removeBlock(blockId: number) {
-      const memo = this.currentMemo;
-      if (!memo) return;
-      memo.blocks = memo.blocks.filter((b) => b.id !== blockId);
-      if (!memo.blocks.length) memo.blocks.push(emptyBlock());
+
+    newMemo() { this.current = { title: '', blocks: [emptyBlock()], generated: {} }; },
+
+    addBlock() { this.current?.blocks.push(emptyBlock()); },
+    removeBlock(id: number) {
+      const m = this.current; if (!m) return;
+      m.blocks = m.blocks.filter((b) => b.id !== id);
+      if (!m.blocks.length) m.blocks.push(emptyBlock());
     },
     moveBlock(from: number, to: number) {
-      const memo = this.currentMemo;
-      if (!memo || to < 0 || to >= memo.blocks.length) return;
-      const [moved] = memo.blocks.splice(from, 1);
-      memo.blocks.splice(to, 0, moved);
+      const m = this.current; if (!m || to < 0 || to >= m.blocks.length) return;
+      const [x] = m.blocks.splice(from, 1); m.blocks.splice(to, 0, x);
     },
-    toggleMetric(blockId: number, metric: string) {
-      const block = this.currentMemo?.blocks.find((b) => b.id === blockId);
-      if (!block) return;
-      const i = block.metrics.indexOf(metric);
-      if (i === -1) block.metrics.push(metric);
-      else block.metrics.splice(i, 1);
+    toggleMetric(id: number, metric: string) {
+      const b = this.current?.blocks.find((x) => x.id === id); if (!b) return;
+      const i = b.metrics.indexOf(metric);
+      if (i === -1) b.metrics.push(metric); else b.metrics.splice(i, 1);
     },
-    runAgent() {
-      const memo = this.currentMemo;
-      if (!memo) return 0;
-      memo.generated = {};
-      memo.blocks.forEach((b) => {
-        if (b.title.trim()) memo.generated[b.title.trim().toLowerCase()] = mockParagraph(b);
-      });
-      return Object.keys(memo.generated).length;
+
+    registerCurrent() {
+      const m = this.current; if (!m || !m.title.trim()) return;
+      this.store[m.title] = m;
+      if (!this.memos.some((t) => t.toLowerCase() === m.title.toLowerCase())) {
+        this.memos = [...this.memos, m.title].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      }
     },
-    clearGenerated() {
-      if (this.currentMemo) this.currentMemo.generated = {};
+
+    async saveStructure() {
+      const m = this.current; if (!m) return;
+      this.registerCurrent();
+      if (this.backendReady) {
+        try { const r = await api.saveStructure(payload(m)); this.memos = r.memos; } catch { /* keep local */ }
+      }
     },
-    deleteGenerated(title: string) {
-      const memo = this.currentMemo;
-      if (memo) delete memo.generated[title.trim().toLowerCase()];
+
+    async runAgent(): Promise<number> {
+      const m = this.current; if (!m) return 0;
+      this.registerCurrent();
+      if (this.backendReady) {
+        try {
+          const r = await api.runAgent(payload(m));
+          m.generated = genMap(r.items); this.memos = r.memos;
+          return Object.keys(m.generated).length;
+        } catch { /* fall through to mock */ }
+      }
+      m.generated = {};
+      m.blocks.forEach((b) => { if (b.title.trim()) m.generated[b.title.trim().toLowerCase()] = mockParagraph(b); });
+      return Object.keys(m.generated).length;
     },
-    deleteMemo(id: number) {
-      this.memos = this.memos.filter((m) => m.id !== id);
-      if (this.currentMemoId === id) this.currentMemoId = this.memos[0]?.id ?? null;
+
+    async clearGenerated() {
+      const m = this.current; if (!m) return;
+      m.generated = {};
+      if (this.backendReady) { try { await api.clearGenerated(m.title); } catch { /* ignore */ } }
     },
-    addMetrics(fileNames: string[]) {
-      // Mock extraction: derive one metric per uploaded document.
-      fileNames.forEach((name, i) => {
-        const base = name.replace(/\.[^.]+$/, '');
-        const metric = `Metric from ${base}`;
-        if (!this.metrics.some((m) => m.metric.toLowerCase() === metric.toLowerCase())) {
-          this.metrics.push({ metric, description: `Extracted from ${name}.` });
+    async deleteGenerated(title: string) {
+      const m = this.current; if (!m) return;
+      delete m.generated[title.trim().toLowerCase()];
+      if (this.backendReady) { try { const r = await api.deleteGenerated(m.title, title); m.generated = genMap(r.items); } catch { /* ignore */ } }
+    },
+
+    async deleteMemo(title: string) {
+      delete this.store[title];
+      this.memos = this.memos.filter((t) => t.toLowerCase() !== title.toLowerCase());
+      if (this.current && this.current.title.toLowerCase() === title.toLowerCase()) {
+        if (this.memos.length) await this.selectMemo(this.memos[0]);
+        else this.newMemo();
+      }
+      if (this.backendReady) { try { const r = await api.deleteMemo(title); this.memos = r.memos; } catch { /* ignore */ } }
+    },
+
+    async addMetrics(files: File[]) {
+      if (this.backendReady) {
+        try { const r = await api.addMetrics(files); this.metrics = r.items; return; } catch { /* fall through */ }
+      }
+      files.forEach((f) => {
+        const name = 'Metric from ' + f.name.replace(/\.[^.]+$/, '');
+        if (!this.metrics.some((m) => m.metric.toLowerCase() === name.toLowerCase())) {
+          this.metrics.push({ metric: name, description: 'Extracted from ' + f.name + '.' });
         }
-        void i;
       });
     },
-    importMemo(fileName: string) {
-      const base = fileName.replace(/\.[^.]+$/, '');
-      const memo = seedMemo(base, [
-        { title: 'Executive summary', description: 'Auto-extracted from the imported document.' },
-        { title: 'Financial analysis', description: 'Auto-extracted from the imported document.', metrics: ['Net debt / EBITDA'] },
-        { title: 'Conclusion', description: 'Auto-extracted from the imported document.' },
-      ]);
-      this.memos.unshift(memo);
-      this.currentMemoId = memo.id;
-      return memo;
+
+    async importMemo(file: File): Promise<string> {
+      if (this.backendReady) {
+        try {
+          const r = await api.importMemo(file);
+          this.memos = r.memos;
+          const id = (r.new_ids && r.new_ids[0]) || r.memos[0];
+          if (id) await this.selectMemo(id);
+          return id || '';
+        } catch { /* fall through */ }
+      }
+      const base = file.name.replace(/\.[^.]+$/, '');
+      const memo: Memo = {
+        title: base,
+        blocks: toBlocks([
+          { title: 'Executive summary', description: 'Auto-extracted from the imported document.', metrics: '' },
+          { title: 'Financial analysis', description: 'Auto-extracted from the imported document.', metrics: 'Net debt / EBITDA' },
+          { title: 'Conclusion', description: 'Auto-extracted from the imported document.', metrics: '' },
+        ]),
+        generated: {},
+      };
+      this.store[base] = memo;
+      if (!this.memos.includes(base)) this.memos = [base, ...this.memos];
+      this.current = memo;
+      return base;
     },
   },
 });
