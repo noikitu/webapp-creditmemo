@@ -82,7 +82,7 @@
     </Card>
 
     <Dialog v-model:open="open">
-      <DialogContent class="max-w-4xl">
+      <DialogContent class="w-[92vw] max-w-[1100px]">
         <DialogHeader>
           <DialogTitle class="truncate">{{ activeDoc || 'Source document' }}</DialogTitle>
         </DialogHeader>
