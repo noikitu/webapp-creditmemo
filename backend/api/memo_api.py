@@ -205,11 +205,8 @@ def _walk_formula_steps(steps, in_group, group_name):
     return out
 
 
-def _extract_formulas():
+def _extract_formulas(payload):
     """{normalized_column: {column, formula}} from the KPI formula group."""
-    payload = _load_recipe_payload()
-    if not payload:
-        return {}
     steps = payload.get("steps", [])
     pairs = _walk_formula_steps(steps, False, KPI_FORMULA_GROUP)
     if not pairs:  # named group not found → take every formula step
@@ -217,12 +214,48 @@ def _extract_formulas():
     return {_norm_key(col): {"column": col, "formula": expr} for col, expr in pairs}
 
 
-def _metrics_in_formula(expr):
-    """Base metric names referenced in a formula (columns with the metric suffix)."""
+def _renamings(steps):
+    """All (from, to) column renamings across the recipe, in order."""
+    out = []
+    for step in steps or []:
+        if step.get("metaType") == "GROUP" or "steps" in step:
+            out += _renamings(step.get("steps", []))
+        elif "Rename" in step.get("type", ""):
+            for r in (step.get("params", {}) or {}).get("renamings", []) or []:
+                if r.get("from") and r.get("to"):
+                    out.append((r["from"], r["to"]))
+    return out
+
+
+def _value_columns(payload):
+    """{current_column_name: base_metric} for wide metric-value columns,
+    following the recipe's renames (e.g. capex -> Capital expenditure)."""
+    renamings = _renamings(payload.get("steps", []))
+    origin = {}  # current name -> earliest original name
+    for frm, to in renamings:
+        origin[to] = origin.get(frm, frm)
+    result = {}
+    for _frm, to in renamings:
+        org = origin.get(to, to)
+        if org.endswith(METRIC_COL_SUFFIX):
+            result[to] = org[: -len(METRIC_COL_SUFFIX)]
+    return result
+
+
+def _metrics_in_formula(expr, value_cols):
+    """Base metric names referenced in a formula, resolving renamed columns."""
+    found = set()
+    # renamed columns (e.g. `capex`) referenced by their current name
+    for name, base in value_cols.items():
+        if re.search(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])', expr):
+            found.add(base)
+    # plus any original *_metric_value_first columns referenced directly
     suffix = re.escape(METRIC_COL_SUFFIX)
-    names = set(re.findall(r'"([^"]*?' + suffix + r')"', expr))
-    names |= set(re.findall(r'\b([A-Za-z0-9_]+' + suffix + r')\b', expr))
-    return sorted({n[: -len(METRIC_COL_SUFFIX)] for n in names})
+    for n in re.findall(r'"([^"]*?' + suffix + r')"', expr):
+        found.add(n[: -len(METRIC_COL_SUFFIX)])
+    for n in re.findall(r'\b([A-Za-z0-9_]+' + suffix + r')\b', expr):
+        found.add(n[: -len(METRIC_COL_SUFFIX)])
+    return sorted(found)
 
 
 def _sources_by_metric():
@@ -252,11 +285,14 @@ def _sources_by_metric():
 @memo_api.route("/kpi_lineage")
 def get_kpi_lineage():
     """Per KPI in output_KPI: formula, metrics used, and their source documents."""
+    formulas, value_cols = {}, {}
     try:
-        formulas = _extract_formulas()
+        payload = _load_recipe_payload()
+        if payload:
+            formulas = _extract_formulas(payload)
+            value_cols = _value_columns(payload)
     except Exception:  # noqa: BLE001
         traceback.print_exc()
-        formulas = {}
     sources = _sources_by_metric()
 
     out_df = read_df(OUTPUT_KPI_DATASET)
@@ -281,7 +317,7 @@ def get_kpi_lineage():
                 formula = f["formula"] if f else ""
                 metrics = [
                     {"metric": mn, "sources": (sources.get(_norm_key(mn)) or {}).get("sources", [])}
-                    for mn in (_metrics_in_formula(formula) if formula else [])
+                    for mn in (_metrics_in_formula(formula, value_cols) if formula else [])
                 ]
                 seen[name] = {
                     "kpi": name,
