@@ -25,9 +25,13 @@
 
     try {
       const doc = await pdfjsLib.getDocument({ url: props.url }).promise;
+      // Fit pages to the container width (keeps highlights aligned since the
+      // same scale is used for canvas and highlight boxes).
+      const avail = Math.max(320, (host.value.clientWidth || 800) - 28);
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i);
-        const scale = 1.4;
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, Math.max(0.5, avail / base.width));
         const viewport = page.getViewport({ scale });
 
         const wrap = document.createElement('div');
