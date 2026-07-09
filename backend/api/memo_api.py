@@ -9,6 +9,8 @@ Multi-memo: every row is scoped by memo_id (= the memo title).
   - credit_memo    : memo_id, title, content                (agent output)
   - metrics        : metric, description                    (selectable catalog)
 """
+import json
+import re
 import traceback
 
 import dataiku
@@ -20,10 +22,14 @@ from ..config import (
     DATA_FOLDER,
     DATASET_NAME,
     INPUT_KPI_DATASET,
+    KPI_FORMULA_GROUP,
+    KPI_RECIPE,
     MEMO_COLS,
     MEMO_DATASET,
+    METRIC_COL_SUFFIX,
     METRICS_DATASET,
     METRICS_FOLDER,
+    OUTPUT_KPI_DATASET,
     PDF_FOLDER,
     STRUCT_COLS,
 )
@@ -164,6 +170,139 @@ def get_document():
         data = stream.read()
     mimetype = "application/pdf" if target.lower().endswith(".pdf") else "application/octet-stream"
     return Response(data, mimetype=mimetype)
+
+
+# ---------------------------------------------------------------------------
+# KPI lineage (formula -> metrics -> source documents)
+# ---------------------------------------------------------------------------
+def _norm_key(s):
+    return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
+
+
+def _load_recipe_payload():
+    """Return the prepare recipe steps payload as a dict (or None)."""
+    recipe = dataiku.api_client().get_default_project().get_recipe(KPI_RECIPE)
+    raw = recipe.get_definition_and_payload().get_payload()
+    return json.loads(raw) if raw else None
+
+
+def _walk_formula_steps(steps, in_group, group_name):
+    """(column, expression) for formula steps, restricted to the target group
+    when present (recurses into nested groups)."""
+    out = []
+    for step in steps or []:
+        stype = step.get("type", "")
+        name = step.get("name") or (step.get("params") or {}).get("name") or ""
+        if step.get("metaType") == "GROUP" or "steps" in step:
+            deeper = in_group or (_norm_key(name) == _norm_key(group_name))
+            out += _walk_formula_steps(step.get("steps", []), deeper, group_name)
+        elif stype == "CreateColumnWithGREL" or "GREL" in stype or "Formula" in stype:
+            if in_group:
+                p = step.get("params", {})
+                col, expr = p.get("column"), p.get("expression")
+                if col and expr:
+                    out.append((col, expr))
+    return out
+
+
+def _extract_formulas():
+    """{normalized_column: {column, formula}} from the KPI formula group."""
+    payload = _load_recipe_payload()
+    if not payload:
+        return {}
+    steps = payload.get("steps", [])
+    pairs = _walk_formula_steps(steps, False, KPI_FORMULA_GROUP)
+    if not pairs:  # named group not found → take every formula step
+        pairs = _walk_formula_steps(steps, True, KPI_FORMULA_GROUP)
+    return {_norm_key(col): {"column": col, "formula": expr} for col, expr in pairs}
+
+
+def _metrics_in_formula(expr):
+    """Base metric names referenced in a formula (columns with the metric suffix)."""
+    suffix = re.escape(METRIC_COL_SUFFIX)
+    names = set(re.findall(r'"([^"]*?' + suffix + r')"', expr))
+    names |= set(re.findall(r'\b([A-Za-z0-9_]+' + suffix + r')\b', expr))
+    return sorted({n[: -len(METRIC_COL_SUFFIX)] for n in names})
+
+
+def _sources_by_metric():
+    """{normalized_metric: {metric, sources:[{source, quote}]}} from input_KPI."""
+    df = read_df(INPUT_KPI_DATASET)
+    if df is None:
+        return {}
+    for col in ("metric", "source", "quote"):
+        if col not in df.columns:
+            df[col] = ""
+    df = df.fillna("")
+    acc = {}
+    for _, row in df.iterrows():
+        metric = str(row["metric"]).strip()
+        if not metric:
+            continue
+        bucket = acc.setdefault(_norm_key(metric), {"metric": metric, "sources": {}})
+        src = str(row["source"]).strip()
+        if src and src not in bucket["sources"]:
+            bucket["sources"][src] = str(row["quote"])
+    return {
+        k: {"metric": v["metric"], "sources": [{"source": s, "quote": q} for s, q in v["sources"].items()]}
+        for k, v in acc.items()
+    }
+
+
+@memo_api.route("/kpi_lineage")
+def get_kpi_lineage():
+    """Per KPI in output_KPI: formula, metrics used, and their source documents."""
+    try:
+        formulas = _extract_formulas()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        formulas = {}
+    sources = _sources_by_metric()
+
+    out_df = read_df(OUTPUT_KPI_DATASET)
+    kpis, seen = [], {}
+    if out_df is not None:
+        for col in ("kpi", "category", "fiscal_year", "kpi_value"):
+            if col not in out_df.columns:
+                out_df[col] = None
+        out_df = out_df.astype(object).where(pd.notna(out_df), None)
+        for _, row in out_df.iterrows():
+            name = str(row["kpi"] or "").strip()
+            if not name:
+                continue
+            if name not in seen:
+                fk = _norm_key(name)
+                f = formulas.get(fk)
+                if f is None:
+                    for k, v in formulas.items():
+                        if fk and (fk in k or k in fk):
+                            f = v
+                            break
+                formula = f["formula"] if f else ""
+                metrics = [
+                    {"metric": mn, "sources": (sources.get(_norm_key(mn)) or {}).get("sources", [])}
+                    for mn in (_metrics_in_formula(formula) if formula else [])
+                ]
+                seen[name] = {
+                    "kpi": name,
+                    "category": str(row["category"] or ""),
+                    "formula": formula,
+                    "metrics": metrics,
+                    "values": [],
+                }
+                kpis.append(seen[name])
+            seen[name]["values"].append({"fiscal_year": row["fiscal_year"], "kpi_value": row["kpi_value"]})
+    return jsonify({"kpis": kpis, "formulas_found": len(formulas)})
+
+
+@memo_api.route("/recipe_debug")
+def recipe_debug():
+    """Dump the KPI recipe payload (calibration aid for the formula parser)."""
+    try:
+        return jsonify({"payload": _load_recipe_payload()})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
 
 
 @memo_api.route("/memo")

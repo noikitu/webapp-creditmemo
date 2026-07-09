@@ -78,4 +78,16 @@ export const api = {
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
   inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
   documentUrl: (name: string) => backendUrl('/document?name=' + encodeURIComponent(name)),
+  kpiLineage: () => get<{ kpis: KpiLineage[]; formulas_found: number }>('/kpi_lineage'),
 };
+
+export interface KpiSource { source: string; quote: string }
+export interface KpiMetric { metric: string; sources: KpiSource[] }
+export interface KpiValue { fiscal_year: number | string | null; kpi_value: number | string | null }
+export interface KpiLineage {
+  kpi: string;
+  category: string;
+  formula: string;
+  metrics: KpiMetric[];
+  values: KpiValue[];
+}
