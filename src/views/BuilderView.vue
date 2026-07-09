@@ -221,6 +221,12 @@
     border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card);
   }
   .prose-memo :deep(.py-loading) { font-size: .8125rem; color: var(--muted-foreground); }
+  .prose-memo :deep(.py-error) {
+    display: inline-block; font-size: .8125rem; color: var(--destructive);
+    background: color-mix(in oklab, var(--destructive) 8%, transparent);
+    border: 1px solid color-mix(in oklab, var(--destructive) 25%, transparent);
+    border-radius: var(--radius-md); padding: .5rem .7rem;
+  }
 
   /* KaTeX display spacing */
   .prose-memo :deep(.katex-display) { margin: .5rem 0; overflow-x: auto; overflow-y: hidden; }

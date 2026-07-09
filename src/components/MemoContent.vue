@@ -1,11 +1,22 @@
 <script setup lang="ts">
   import { ref, watch, onMounted, nextTick } from 'vue';
-  import { renderRich, typesetMath, codeBlock } from '@/lib/markdown';
+  import { renderRich, typesetMath } from '@/lib/markdown';
   import { api } from '@/api';
 
   const props = defineProps<{ content: string }>();
   const root = ref<HTMLElement | null>(null);
   const html = ref('');
+
+  function showChartError(id: string, msg?: string) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    box.innerHTML = '';
+    const span = document.createElement('span');
+    span.className = 'py-error';
+    span.textContent = '⚠︎ No chart could be generated from this code'
+      + (msg ? ': ' + msg : '.');
+    box.appendChild(span);
+  }
 
   async function renderChart(id: string, code: string) {
     try {
@@ -15,11 +26,10 @@
       if (res.status === 'ok' && res.image) {
         box.innerHTML = `<img class="py-chart-img" alt="Generated chart" src="data:image/png;base64,${res.image}">`;
       } else {
-        box.innerHTML = codeBlock(code); // backend error → show the code
+        showChartError(id, res.message);
       }
-    } catch {
-      const box = document.getElementById(id);
-      if (box) box.innerHTML = codeBlock(code); // no backend (local) → show the code
+    } catch (e) {
+      showChartError(id, (e as Error).message);
     }
   }
 
