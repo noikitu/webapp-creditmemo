@@ -76,4 +76,6 @@ export const api = {
   },
   runPython: (code: string) =>
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
+  inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
+  documentUrl: (name: string) => backendUrl('/document?name=' + encodeURIComponent(name)),
 };

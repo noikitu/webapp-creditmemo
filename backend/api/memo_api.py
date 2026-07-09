@@ -13,11 +13,13 @@ import traceback
 
 import dataiku
 import pandas as pd
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from ..config import (
     AGENT_NAME,
+    DATA_FOLDER,
     DATASET_NAME,
+    INPUT_KPI_DATASET,
     MEMO_COLS,
     MEMO_DATASET,
     METRICS_DATASET,
@@ -131,6 +133,37 @@ def get_metrics():
 @memo_api.route("/memos")
 def get_memos():
     return jsonify({"memos": list_memos()})
+
+
+@memo_api.route("/input_kpi")
+def get_input_kpi():
+    """The KPIs the agent extracted into input_KPI, as {columns, rows}."""
+    df = read_df(INPUT_KPI_DATASET)
+    if df is None:
+        return jsonify({"columns": [], "rows": []})
+    safe = df.astype(object).where(pd.notna(df), None)
+    return jsonify({"columns": [str(c) for c in safe.columns], "rows": safe.values.tolist()})
+
+
+@memo_api.route("/document")
+def get_document():
+    """Stream a source document (by file name) from the Data managed folder."""
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing name"}), 400
+    folder = dataiku.Folder(DATA_FOLDER)
+    target = None
+    for p in folder.list_paths_in_partition():
+        clean = p.lstrip("/")
+        if clean == name.lstrip("/") or clean.split("/")[-1] == name.split("/")[-1]:
+            target = p
+            break
+    if target is None:
+        return jsonify({"error": "not found: %s" % name}), 404
+    with folder.get_download_stream(target) as stream:
+        data = stream.read()
+    mimetype = "application/pdf" if target.lower().endswith(".pdf") else "application/octet-stream"
+    return Response(data, mimetype=mimetype)
 
 
 @memo_api.route("/memo")

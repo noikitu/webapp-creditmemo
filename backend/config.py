@@ -9,6 +9,10 @@ datasets while keeping managed-folder IDs) — verify against the target with
 DATASET_NAME = "structure_memo"   # memo_id, title, description, metrics
 MEMO_DATASET = "credit_memo"      # memo_id, title, content (agent output)
 METRICS_DATASET = "metrics"       # metric, description (selectable catalog)
+INPUT_KPI_DATASET = "input_KPI"   # metric, fiscal_year, metric_value, source, quote
+
+# KPI extraction
+DATA_FOLDER = "IYNDI8sb"          # "Data" folder holding the source documents (PDF)
 
 # Managed folders: {display_name: folder_id}
 PDF_FOLDER = "8aTKpXsk"           # "Previous Memos PDF": cleared & filled on import
