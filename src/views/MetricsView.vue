@@ -61,7 +61,7 @@
 
     <div class="grid gap-3 sm:grid-cols-2">
       <Card v-for="m in metrics" :key="m.metric">
-        <CardContent class="flex items-start gap-3 pt-5">
+        <CardContent class="flex items-start gap-3">
           <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-chart-2/15 text-chart-2">
             <BarChart3 class="h-4 w-4" />
           </span>
