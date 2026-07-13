@@ -19,6 +19,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from ..config import (
     AGENT_NAME,
+    ALL_KPI_DATASET,
     DATA_FOLDER,
     DATASET_NAME,
     INPUT_KPI_DATASET,
@@ -139,6 +140,25 @@ def get_metrics():
 @memo_api.route("/memos")
 def get_memos():
     return jsonify({"memos": list_memos()})
+
+
+@memo_api.route("/all_kpi")
+def get_all_kpi():
+    """Catalog of KPIs selectable in the Builder, from the all_KPI dataset."""
+    df = read_df(ALL_KPI_DATASET)
+    items, seen = [], set()
+    if df is not None:
+        name_col = next((c for c in ("kpi", "KPI", "name", "metric") if c in df.columns),
+                        df.columns[0] if len(df.columns) else None)
+        cat_col = "category" if "category" in df.columns else None
+        if name_col is not None:
+            for _, row in df.iterrows():
+                nm = ("" if pd.isna(row.get(name_col)) else str(row.get(name_col))).strip()
+                if nm and nm.lower() not in seen:
+                    seen.add(nm.lower())
+                    cat = ("" if not cat_col or pd.isna(row.get(cat_col)) else str(row.get(cat_col))).strip()
+                    items.append({"kpi": nm, "category": cat})
+    return jsonify({"items": items})
 
 
 @memo_api.route("/input_kpi")
@@ -329,6 +349,115 @@ def get_kpi_lineage():
                 kpis.append(seen[name])
             seen[name]["values"].append({"fiscal_year": row["fiscal_year"], "kpi_value": row["kpi_value"]})
     return jsonify({"kpis": kpis, "formulas_found": len(formulas)})
+
+
+@memo_api.route("/kpi_full")
+def get_kpi_full():
+    """Merged KPI catalog from all_KPI.
+
+    - KPIs computed by the prepare recipe (present in output_KPI) get the full
+      lineage: formula, metrics used, and their source documents.
+    - Input metrics only carry their source documents (from input_KPI).
+    """
+    formulas, value_cols = {}, {}
+    try:
+        payload = _load_recipe_payload()
+        if payload:
+            formulas = _extract_formulas(payload)
+            value_cols = _value_columns(payload)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+    sources = _sources_by_metric()
+
+    def find_formula(name):
+        fk = _norm_key(name)
+        f = formulas.get(fk)
+        if f is None:
+            for k, v in formulas.items():
+                if fk and (fk in k or k in fk):
+                    return v
+        return f
+
+    # Values per computed KPI, from output_KPI.
+    computed_values = {}
+    out_df = read_df(OUTPUT_KPI_DATASET)
+    if out_df is not None:
+        out_df = ensure_cols(out_df, ["kpi", "fiscal_year", "kpi_value"])
+        d = out_df.astype(object).where(pd.notna(out_df), None)
+        for _, row in d.iterrows():
+            nm = str(row["kpi"] or "").strip()
+            if nm:
+                bucket = computed_values.setdefault(_norm_key(nm), {"name": nm, "values": []})
+                bucket["values"].append({"fiscal_year": row["fiscal_year"], "kpi_value": row["kpi_value"]})
+
+    # Values per input metric, from input_KPI.
+    input_values = {}
+    in_df = read_df(INPUT_KPI_DATASET)
+    if in_df is not None:
+        in_df = ensure_cols(in_df, ["metric", "fiscal_year", "metric_value"])
+        d = in_df.astype(object).where(pd.notna(in_df), None)
+        for _, row in d.iterrows():
+            nm = str(row["metric"] or "").strip()
+            if nm:
+                input_values.setdefault(_norm_key(nm), []).append(
+                    {"fiscal_year": row["fiscal_year"], "kpi_value": row["metric_value"]})
+
+    # Catalog from all_KPI (falls back to the union of the two datasets).
+    entries, seen = [], {}
+    df = read_df(ALL_KPI_DATASET)
+    if df is not None:
+        name_col = next((c for c in ("kpi", "KPI", "name", "metric") if c in df.columns),
+                        df.columns[0] if len(df.columns) else None)
+        cat_col = "category" if "category" in df.columns else None
+        year_col = next((c for c in ("fiscal_year", "year") if c in df.columns), None)
+        val_col = next((c for c in ("kpi_value", "value", "metric_value") if c in df.columns), None)
+        d = df.astype(object).where(pd.notna(df), None)
+        for _, row in d.iterrows():
+            nm = str(row[name_col] or "").strip() if name_col else ""
+            if not nm:
+                continue
+            k = _norm_key(nm)
+            if k not in seen:
+                seen[k] = {"kpi": nm,
+                           "category": str(row[cat_col] or "").strip() if cat_col else "",
+                           "values": []}
+                entries.append(seen[k])
+            if year_col and val_col and row[val_col] is not None:
+                seen[k]["values"].append({"fiscal_year": row[year_col], "kpi_value": row[val_col]})
+    else:
+        for k, v in computed_values.items():
+            seen[k] = {"kpi": v["name"], "category": "", "values": []}
+            entries.append(seen[k])
+        for k in input_values:
+            if k not in seen:
+                nm = (sources.get(k) or {}).get("metric") or k
+                seen[k] = {"kpi": nm, "category": "", "values": []}
+                entries.append(seen[k])
+
+    items = []
+    for e in entries:
+        k = _norm_key(e["kpi"])
+        comp = computed_values.get(k)
+        if comp is None:
+            for ck, cv in computed_values.items():
+                if k and (k in ck or ck in k):
+                    comp = cv
+                    break
+        if comp is not None:
+            f = find_formula(e["kpi"])
+            formula = f["formula"] if f else ""
+            metrics = [
+                {"metric": mn, "sources": (sources.get(_norm_key(mn)) or {}).get("sources", [])}
+                for mn in (_metrics_in_formula(formula, value_cols) if formula else [])
+            ]
+            items.append({"kpi": e["kpi"], "category": e["category"], "type": "computed",
+                          "formula": formula, "metrics": metrics,
+                          "values": e["values"] or comp["values"]})
+        else:
+            items.append({"kpi": e["kpi"], "category": e["category"], "type": "input",
+                          "sources": (sources.get(k) or {}).get("sources", []),
+                          "values": e["values"] or input_values.get(k, [])})
+    return jsonify({"items": items})
 
 
 @memo_api.route("/recipe_debug")

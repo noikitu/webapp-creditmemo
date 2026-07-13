@@ -1,6 +1,5 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue';
-  import { storeToRefs } from 'pinia';
   import { toast } from 'vue-sonner';
   import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
@@ -11,15 +10,42 @@
   import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
   } from '@/components/ui/dialog';
-  import { useMemoStore } from '@/stores/memo';
+  import { useMemoStore, type Block } from '@/stores/memo';
   import MemoContent from '@/components/MemoContent.vue';
   import { cn } from '@/lib/utils';
 
   const store = useMemoStore();
-  const { metricNames } = storeToRefs(store);
   const memo = computed(() => store.current);
   const running = ref(false);
   const deleteOpen = ref(false);
+
+  // KPI picker (per block): + button opens the all_KPI catalog
+  const pickerOpen = ref(false);
+  const pickerBlock = ref<Block | null>(null);
+  const pickerSearch = ref('');
+
+  function openKpiPicker(block: Block) {
+    pickerBlock.value = block;
+    pickerSearch.value = '';
+    pickerOpen.value = true;
+  }
+  const pickerGroups = computed(() => {
+    const q = pickerSearch.value.trim().toLowerCase();
+    const opts = store.kpiOptions.filter((o) => !q || o.kpi.toLowerCase().includes(q));
+    const groups: { category: string; items: typeof opts }[] = [];
+    for (const o of opts) {
+      let g = groups.find((x) => x.category === (o.category || ''));
+      if (!g) { g = { category: o.category || '', items: [] }; groups.push(g); }
+      g.items.push(o);
+    }
+    return groups;
+  });
+  function isPicked(kpi: string): boolean {
+    return !!pickerBlock.value && pickerBlock.value.metrics.includes(kpi);
+  }
+  function togglePicked(kpi: string) {
+    if (pickerBlock.value) store.toggleMetric(pickerBlock.value.id, kpi);
+  }
 
   onMounted(() => store.boot());
 
@@ -102,17 +128,19 @@
             <Textarea v-model="block.description" :rows="3"
               placeholder="Description — expected content of this section…" class="mb-3" />
 
-            <div v-if="metricNames.length" class="mb-1">
-              <span class="text-xs font-medium text-muted-foreground">Metrics to compute</span>
-              <div class="flex flex-wrap gap-1.5 mt-1.5">
-                <button v-for="m in metricNames" :key="m" type="button"
-                  @click="store.toggleMetric(block.id, m)"
-                  :class="cn(
-                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                    block.metrics.includes(m)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-secondary text-secondary-foreground border-transparent hover:border-input',
-                  )">{{ m }}</button>
+            <div class="mb-1">
+              <span class="text-xs font-medium text-muted-foreground">KPIs to include</span>
+              <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <span v-for="m in block.metrics" :key="m"
+                  class="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-medium">
+                  {{ m }}
+                  <button type="button" class="opacity-60 hover:opacity-100"
+                    @click="store.toggleMetric(block.id, m)"><X class="h-3 w-3" /></button>
+                </span>
+                <Button variant="outline" size="sm" class="h-7 rounded-full px-2.5"
+                  @click="openKpiPicker(block)">
+                  <Plus class="h-3.5 w-3.5" /> Add KPI
+                </Button>
               </div>
             </div>
 
@@ -157,6 +185,39 @@
     <Card v-else><CardContent class="py-10 text-center text-muted-foreground">
       No memo selected. Create one from <strong>Saved memos</strong> or <strong>Import</strong>.
     </CardContent></Card>
+
+    <!-- KPI picker -->
+    <Dialog v-model:open="pickerOpen">
+      <DialogContent class="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Select KPIs</DialogTitle>
+          <DialogDescription>KPIs from the <code class="text-foreground">all_KPI</code> catalog.</DialogDescription>
+        </DialogHeader>
+        <Input v-model="pickerSearch" placeholder="Search KPIs…" />
+        <div class="max-h-[50vh] overflow-auto space-y-4 pr-1">
+          <div v-for="g in pickerGroups" :key="g.category">
+            <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+              {{ g.category || 'Other' }}
+            </div>
+            <div class="space-y-0.5">
+              <button v-for="o in g.items" :key="o.kpi" type="button"
+                @click="togglePicked(o.kpi)"
+                :class="cn('flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-left transition-colors',
+                  isPicked(o.kpi) ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent')">
+                <Check :class="cn('h-3.5 w-3.5 shrink-0', isPicked(o.kpi) ? 'opacity-100' : 'opacity-0')" />
+                {{ o.kpi }}
+              </button>
+            </div>
+          </div>
+          <p v-if="!pickerGroups.length" class="text-sm text-muted-foreground text-center py-4">
+            No KPI matches your search.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button @click="pickerOpen = false">Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <!-- Delete confirmation -->
     <Dialog v-model:open="deleteOpen">

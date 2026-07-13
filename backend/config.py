@@ -9,6 +9,7 @@ datasets while keeping managed-folder IDs) — verify against the target with
 DATASET_NAME = "structure_memo"   # memo_id, title, description, metrics
 MEMO_DATASET = "credit_memo"      # memo_id, title, content (agent output)
 METRICS_DATASET = "metrics"       # metric, description (selectable catalog)
+ALL_KPI_DATASET = "all_KPI"       # catalog of KPIs selectable in the Builder
 INPUT_KPI_DATASET = "input_KPI"   # metric, fiscal_year, metric_value, source, quote
 OUTPUT_KPI_DATASET = "output_KPI" # fiscal_year, kpi, category, kpi_value
 

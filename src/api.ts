@@ -42,13 +42,26 @@ const postForm = <T>(p: string, form: FormData) =>
 // For <img>/<iframe> src or download links pointing at a backend route:
 export const backendUrl = (path: string) => resolveUrl(path);
 
-export interface Metric { metric: string; description: string }
+export interface KpiOption { kpi: string; category: string }
 export interface RawBlock { title: string; description: string; metrics: string }
 export interface GeneratedItem { title: string; content: string }
 export interface MemoPayload { memo_title: string; blocks: Array<{ title: string; description: string; metrics: string }> }
 
+export interface KpiSource { source: string; quote: string }
+export interface KpiMetric { metric: string; sources: KpiSource[] }
+export interface KpiValue { fiscal_year: number | string | null; kpi_value: number | string | null }
+export interface MergedKpi {
+  kpi: string;
+  category: string;
+  type: 'computed' | 'input';
+  formula?: string;
+  metrics?: KpiMetric[];
+  sources?: KpiSource[];
+  values: KpiValue[];
+}
+
 export const api = {
-  metrics: () => get<{ items: Metric[] }>('/metrics'),
+  allKpi: () => get<{ items: KpiOption[] }>('/all_kpi'),
   memos: () => get<{ memos: string[] }>('/memos'),
   memo: (id: string) =>
     get<{ memo_title: string; blocks: RawBlock[]; generated: GeneratedItem[] }>(
@@ -69,25 +82,8 @@ export const api = {
     fd.append('file', file);
     return postForm<{ status: string; memos: string[]; new_ids: string[] }>('/import_memo', fd);
   },
-  addMetrics: (files: File[]) => {
-    const fd = new FormData();
-    files.forEach((f) => fd.append('files', f));
-    return postForm<{ status: string; items: Metric[] }>('/add_metrics', fd);
-  },
   runPython: (code: string) =>
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
-  inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
+  kpiFull: () => get<{ items: MergedKpi[] }>('/kpi_full'),
   documentUrl: (name: string) => backendUrl('/document?name=' + encodeURIComponent(name)),
-  kpiLineage: () => get<{ kpis: KpiLineage[]; formulas_found: number }>('/kpi_lineage'),
 };
-
-export interface KpiSource { source: string; quote: string }
-export interface KpiMetric { metric: string; sources: KpiSource[] }
-export interface KpiValue { fiscal_year: number | string | null; kpi_value: number | string | null }
-export interface KpiLineage {
-  kpi: string;
-  category: string;
-  formula: string;
-  metrics: KpiMetric[];
-  values: KpiValue[];
-}

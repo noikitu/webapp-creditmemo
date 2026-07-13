@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { api, type Metric } from '@/api';
+import { api, type KpiOption } from '@/api';
 
 export interface Block { id: number; title: string; description: string; metrics: string[]; }
 export interface Memo { title: string; blocks: Block[]; generated: Record<string, string>; }
@@ -8,12 +8,24 @@ let uid = 0;
 const nextId = () => ++uid;
 const emptyBlock = (): Block => ({ id: nextId(), title: '', description: '', metrics: [] });
 
+// The metrics column of structure_memo stores a JSON list (e.g. ["Current Ratio"]).
+// Older rows may still hold a comma-separated string — parse both.
+function parseMetrics(raw: string): string[] {
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    if (Array.isArray(v)) return v.map(String).map((t) => t.trim()).filter(Boolean);
+  } catch { /* legacy format */ }
+  return s.split(',').map((t) => t.trim()).filter(Boolean);
+}
+
 function toBlocks(raw: { title: string; description: string; metrics: string }[]): Block[] {
   return raw.map((b) => ({
     id: nextId(),
     title: b.title || '',
     description: b.description || '',
-    metrics: String(b.metrics || '').split(',').map((s) => s.trim()).filter(Boolean),
+    metrics: parseMetrics(b.metrics),
   }));
 }
 
@@ -32,7 +44,7 @@ function payload(memo: Memo) {
     blocks: memo.blocks.map((b) => ({
       title: b.title.trim(),
       description: b.description.trim(),
-      metrics: b.metrics.join(', '),
+      metrics: JSON.stringify(b.metrics),   // JSON list — easy to parse downstream
     })),
   };
 }
@@ -41,7 +53,7 @@ function payload(memo: Memo) {
 function mockParagraph(block: Block): string {
   const intro = `## ${block.title}\n\n${block.description || 'This section summarises the relevant findings.'} ` +
     `Based on the available data, the analysis indicates a **stable** outlook.`;
-  const metricsLine = block.metrics.length ? `\n\nKey metrics considered: **${block.metrics.join('**, **')}**.` : '';
+  const metricsLine = block.metrics.length ? `\n\nKPIs to include: **${block.metrics.join('**, **')}**.` : '';
   if (/financ|analysis|leverage/i.test(block.title)) {
     return intro + metricsLine +
       `\n\nThe leverage ratio is $\\frac{\\text{Net debt}}{\\text{EBITDA}} = 2.4$, within covenant limits.\n\n` +
@@ -54,21 +66,24 @@ function mockParagraph(block: Block): string {
   return intro + ` A few areas warrant close monitoring over the next reporting period.${metricsLine}`;
 }
 
-function mockSeed(): { metrics: Metric[]; memos: string[]; store: Record<string, Memo> } {
-  const metrics: Metric[] = [
-    { metric: 'Net debt / EBITDA', description: 'Leverage ratio of the counterparty.' },
-    { metric: 'Interest coverage', description: 'EBIT divided by interest expense.' },
-    { metric: 'Current ratio', description: 'Current assets over current liabilities.' },
-    { metric: 'Debt / Equity', description: 'Total debt relative to shareholder equity.' },
-    { metric: 'Revenue growth', description: 'Year-over-year revenue change.' },
-    { metric: 'Free cash flow', description: 'Operating cash flow minus capex.' },
-  ];
+const MOCK_KPIS: KpiOption[] = [
+  { kpi: 'Current Ratio', category: 'Liquidity' },
+  { kpi: 'Debt / Equity', category: 'Leverage' },
+  { kpi: 'Total Debt / EBITDA', category: 'Leverage' },
+  { kpi: 'EBITDA Margin', category: 'Profitability' },
+  { kpi: 'Net Profit Margin', category: 'Profitability' },
+  { kpi: 'Return on Equity (ROE)', category: 'Profitability' },
+  { kpi: 'EBITDA', category: 'Reported' },
+  { kpi: 'Free cash flow', category: 'Reported' },
+];
+
+function mockSeed(): { memos: string[]; store: Record<string, Memo> } {
   const store: Record<string, Memo> = {
     'Acme Corp — 2026 annual credit review': {
       title: 'Acme Corp — 2026 annual credit review',
       blocks: toBlocks([
         { title: 'Counterparty overview', description: 'Business profile, ownership and sector.', metrics: '' },
-        { title: 'Financial analysis', description: 'Leverage, liquidity and profitability.', metrics: 'Net debt / EBITDA, Interest coverage' },
+        { title: 'Financial analysis', description: 'Leverage, liquidity and profitability.', metrics: '["Total Debt / EBITDA","EBITDA Margin"]' },
         { title: 'Risks & mitigants', description: 'Main risks and how they are mitigated.', metrics: '' },
       ]),
       generated: {},
@@ -77,26 +92,25 @@ function mockSeed(): { metrics: Metric[]; memos: string[]; store: Record<string,
       title: 'Globex Ltd — facility renewal',
       blocks: toBlocks([
         { title: 'Purpose of the request', description: 'Renewal of the revolving facility.', metrics: '' },
-        { title: 'Financial analysis', description: 'Trend over the last three years.', metrics: 'Revenue growth, Free cash flow' },
+        { title: 'Financial analysis', description: 'Trend over the last three years.', metrics: '["Free cash flow"]' },
       ]),
       generated: {},
     },
   };
-  return { metrics, memos: Object.keys(store), store };
+  return { memos: Object.keys(store), store };
 }
 
 export const useMemoStore = defineStore('memo', {
   state: () => ({
     booted: false,
     backendReady: false,
-    metrics: [] as Metric[],
+    kpiOptions: [] as KpiOption[],         // selectable KPIs (all_KPI dataset)
     memos: [] as string[],                 // ordered memo titles (sidebar)
     store: {} as Record<string, Memo>,     // loaded memos, keyed by title
     current: null as Memo | null,
   }),
 
   getters: {
-    metricNames: (s): string[] => s.metrics.map((m) => m.metric),
     blockCount: (s) => (title: string): number | null =>
       s.store[title] ? s.store[title].blocks.length : null,
   },
@@ -106,8 +120,8 @@ export const useMemoStore = defineStore('memo', {
       if (this.booted) return;
       this.booted = true;
       try {
-        const [m, mm] = await Promise.all([api.metrics(), api.memos()]);
-        this.metrics = m.items;
+        const [k, mm] = await Promise.all([api.allKpi(), api.memos()]);
+        this.kpiOptions = k.items;
         this.memos = mm.memos;
         this.backendReady = true;
         if (this.memos.length) await this.selectMemo(this.memos[0]);
@@ -115,7 +129,8 @@ export const useMemoStore = defineStore('memo', {
       } catch {
         // No DSS backend (local dev): fall back to mock data.
         const s = mockSeed();
-        this.metrics = s.metrics; this.store = s.store; this.memos = s.memos;
+        this.kpiOptions = MOCK_KPIS;
+        this.store = s.store; this.memos = s.memos;
         this.current = this.store[this.memos[0]] || null;
       }
     },
@@ -207,18 +222,6 @@ export const useMemoStore = defineStore('memo', {
       if (this.backendReady) { try { const r = await api.deleteMemo(title); this.memos = r.memos; } catch { /* ignore */ } }
     },
 
-    async addMetrics(files: File[]) {
-      if (this.backendReady) {
-        try { const r = await api.addMetrics(files); this.metrics = r.items; return; } catch { /* fall through */ }
-      }
-      files.forEach((f) => {
-        const name = 'Metric from ' + f.name.replace(/\.[^.]+$/, '');
-        if (!this.metrics.some((m) => m.metric.toLowerCase() === name.toLowerCase())) {
-          this.metrics.push({ metric: name, description: 'Extracted from ' + f.name + '.' });
-        }
-      });
-    },
-
     async importMemo(file: File): Promise<string> {
       if (this.backendReady) {
         try {
@@ -234,7 +237,7 @@ export const useMemoStore = defineStore('memo', {
         title: base,
         blocks: toBlocks([
           { title: 'Executive summary', description: 'Auto-extracted from the imported document.', metrics: '' },
-          { title: 'Financial analysis', description: 'Auto-extracted from the imported document.', metrics: 'Net debt / EBITDA' },
+          { title: 'Financial analysis', description: 'Auto-extracted from the imported document.', metrics: '["Total Debt / EBITDA"]' },
           { title: 'Conclusion', description: 'Auto-extracted from the imported document.', metrics: '' },
         ]),
         generated: {},

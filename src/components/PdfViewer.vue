@@ -102,7 +102,7 @@
   .pdf-viewer { display: flex; flex-direction: column; gap: 8px; }
   .pdf-note { font-size: .8125rem; color: var(--muted-foreground); margin: 0; }
   .pdf-error { color: var(--destructive); }
-  .pdf-host { max-height: 72vh; overflow: auto; background: var(--muted); border-radius: var(--radius-md); padding: 12px; }
+  .pdf-host { max-height: 80vh; overflow: auto; background: var(--muted); border-radius: var(--radius-md); padding: 12px; }
   .pdf-host :deep(.pdf-page) {
     position: relative; margin: 0 auto 12px; background: #fff;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
