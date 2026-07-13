@@ -138,7 +138,7 @@
     </CardContent></Card>
 
     <Dialog v-model:open="open">
-      <DialogContent class="w-[96vw] max-w-[1400px]">
+      <DialogContent class="w-[96vw] max-w-[1800px]">
         <DialogHeader><DialogTitle class="truncate">{{ activeDoc || 'Source document' }}</DialogTitle></DialogHeader>
         <PdfViewer v-if="open && activeDoc" :url="api.documentUrl(activeDoc)" :highlight="activeQuote" />
         <div v-if="activeQuote" class="mt-1">
