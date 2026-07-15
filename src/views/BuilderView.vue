@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { computed, onMounted, ref, nextTick } from 'vue';
   import { toast } from 'vue-sonner';
-  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser } from 'lucide-vue-next';
+  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
@@ -20,6 +20,30 @@
   const deleteOpen = ref(false);
   const confirmed = ref(false);   // triggers the green sweep on Confirm
   const ran = ref(false);         // triggers the blue sweep on Run agent
+
+  // New-memo dialog (start from scratch or import)
+  const newMemoOpen = ref(false);
+  const importing = ref(false);
+  const fileInput = ref<HTMLInputElement | null>(null);
+
+  function startScratch() {
+    store.newMemo();
+    newMemoOpen.value = false;
+    toast.success('New memo started.');
+  }
+  async function importFile(file: File | null | undefined) {
+    if (!file) return;
+    importing.value = true;
+    try {
+      const title = await store.importMemo(file);
+      newMemoOpen.value = false;
+      toast.success(`Imported « ${title} ».`);
+    } catch (e) {
+      toast.error('Import failed: ' + (e as Error).message);
+    } finally {
+      importing.value = false;
+    }
+  }
 
   // KPI picker (per block): + button opens the all_KPI catalog
   const pickerOpen = ref(false);
@@ -103,10 +127,17 @@
 
 <template>
   <div class="max-w-5xl mx-auto px-8 py-10">
-    <h1 class="text-2xl font-semibold mb-1">Memo structure</h1>
-    <p class="text-muted-foreground mb-8">
-      Give the memo a title, fill in each section, reorder them, then confirm the structure or run the agent.
-    </p>
+    <div class="flex items-start justify-between gap-4 mb-8">
+      <div>
+        <h1 class="text-2xl font-semibold mb-1">Memo structure</h1>
+        <p class="text-muted-foreground max-w-2xl">
+          Give the memo a title, fill in each section, reorder them, then save the memo or run the agent.
+        </p>
+      </div>
+      <Button variant="outline" class="shrink-0" @click="newMemoOpen = true">
+        <Plus class="h-4 w-4" /> New Memo
+      </Button>
+    </div>
 
     <template v-if="memo">
       <!-- Memo title -->
@@ -189,7 +220,7 @@
           <Sparkles class="h-4 w-4" /> {{ running ? 'Running…' : 'Run agent' }}
         </Button>
         <Button :class="cn({ 'confirm-sweep': confirmed })" @click="confirmStructure">
-          <Check class="h-4 w-4" /> Confirm structure
+          <Check class="h-4 w-4" /> Save Memo
         </Button>
       </div>
     </template>
@@ -197,6 +228,36 @@
     <Card v-else><CardContent class="py-10 text-center text-muted-foreground">
       No memo selected. Create one from <strong>Saved memos</strong> or <strong>Import</strong>.
     </CardContent></Card>
+
+    <!-- New memo: start from scratch or import -->
+    <Dialog v-model:open="newMemoOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New memo</DialogTitle>
+          <DialogDescription>Start from scratch, or import an existing memo to extract its structure.</DialogDescription>
+        </DialogHeader>
+        <div class="space-y-3">
+          <Button variant="outline" class="w-full justify-start gap-2" @click="startScratch">
+            <FilePlus2 class="h-4 w-4" /> Start from scratch
+          </Button>
+
+          <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground text-center">or</div>
+
+          <button type="button"
+            class="flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-8 text-center transition-colors hover:border-primary hover:bg-accent"
+            @click="fileInput?.click()"
+            @dragover.prevent
+            @drop.prevent="importFile($event.dataTransfer?.files?.[0])">
+            <UploadCloud class="h-6 w-6 text-muted-foreground" />
+            <span class="text-sm font-medium">{{ importing ? 'Importing…' : 'Import a memo' }}</span>
+            <span class="text-xs text-muted-foreground">Drag &amp; drop or click — PDF, DOCX, TXT…</span>
+            <input ref="fileInput" type="file" class="hidden"
+              accept=".pdf,.docx,.doc,.txt,.md"
+              @change="importFile(($event.target as HTMLInputElement).files?.[0])" />
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
 
     <!-- KPI picker -->
     <Dialog v-model:open="pickerOpen">

@@ -1,9 +1,8 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
-import { FileText, FolderOpen, Upload, Sigma } from 'lucide-vue-next';
+import { FileText, FolderOpen, Sigma } from 'lucide-vue-next';
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 import BuilderView from '@/views/BuilderView.vue';
 import SavedMemosView from '@/views/SavedMemosView.vue';
-import ImportView from '@/views/ImportView.vue';
 import KpisView from '@/views/KpisView.vue';
 
 const router = createRouter({
@@ -16,8 +15,6 @@ const router = createRouter({
         meta: { title: 'Saved memos', icon: FolderOpen, order: 2 } },
       { path: 'kpis', name: 'kpis', component: KpisView,
         meta: { title: 'KPIs', icon: Sigma, order: 3 } },
-      { path: 'import', name: 'import', component: ImportView,
-        meta: { title: 'Import', icon: Upload, order: 4 } },
     ],
   }],
 });
