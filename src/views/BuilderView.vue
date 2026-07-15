@@ -19,6 +19,7 @@
   const running = ref(false);
   const deleteOpen = ref(false);
   const confirmed = ref(false);   // triggers the green sweep on Confirm
+  const ran = ref(false);         // triggers the blue sweep on Run agent
 
   // KPI picker (per block): + button opens the all_KPI catalog
   const pickerOpen = ref(false);
@@ -81,6 +82,10 @@
     running.value = true;
     try {
       const n = await store.runAgent();
+      ran.value = false;
+      await nextTick();
+      ran.value = true;
+      setTimeout(() => { ran.value = false; }, 1000);
       toast.success(`Agent finished — ${n} paragraph(s) generated.`);
     } catch (e) {
       toast.error('Agent run failed: ' + (e as Error).message);
@@ -180,7 +185,7 @@
         <Button variant="ghost" class="text-destructive mr-auto" @click="deleteOpen = true">
           <Trash2 class="h-4 w-4" /> Delete this memo
         </Button>
-        <Button variant="outline" :disabled="running" @click="runAgent">
+        <Button variant="outline" :disabled="running" :class="cn({ 'run-sweep': ran })" @click="runAgent">
           <Sparkles class="h-4 w-4" /> {{ running ? 'Running…' : 'Run agent' }}
         </Button>
         <Button :class="cn({ 'confirm-sweep': confirmed })" @click="confirmStructure">
@@ -310,5 +315,14 @@
   @keyframes confirm-sweep-anim {
     from { transform: translateX(-120%); }
     to   { transform: translateX(120%); }
+  }
+
+  /* Blue sweep across the Run agent button on success */
+  .run-sweep { position: relative; overflow: hidden; }
+  .run-sweep::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, rgba(112, 146, 242, .9) 50%, transparent 100%);
+    transform: translateX(-120%);
+    animation: confirm-sweep-anim .9s ease-out;
   }
 </style>
