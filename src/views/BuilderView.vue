@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, onMounted, ref } from 'vue';
+  import { computed, onMounted, ref, nextTick } from 'vue';
   import { toast } from 'vue-sonner';
   import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
@@ -18,6 +18,7 @@
   const memo = computed(() => store.current);
   const running = ref(false);
   const deleteOpen = ref(false);
+  const confirmed = ref(false);   // triggers the green sweep on Confirm
 
   // KPI picker (per block): + button opens the all_KPI catalog
   const pickerOpen = ref(false);
@@ -68,6 +69,10 @@
   async function confirmStructure() {
     if (!validate()) return;
     await store.saveStructure();
+    confirmed.value = false;      // restart the animation if clicked again
+    await nextTick();
+    confirmed.value = true;
+    setTimeout(() => { confirmed.value = false; }, 1000);
     toast.success(`« ${memo.value!.title} » saved (${memo.value!.blocks.length} sections).`);
   }
 
@@ -178,7 +183,9 @@
         <Button variant="outline" :disabled="running" @click="runAgent">
           <Sparkles class="h-4 w-4" /> {{ running ? 'Running…' : 'Run agent' }}
         </Button>
-        <Button @click="confirmStructure"><Check class="h-4 w-4" /> Confirm structure</Button>
+        <Button :class="cn({ 'confirm-sweep': confirmed })" @click="confirmStructure">
+          <Check class="h-4 w-4" /> Confirm structure
+        </Button>
       </div>
     </template>
 
@@ -291,4 +298,17 @@
 
   /* KaTeX display spacing */
   .prose-memo :deep(.katex-display) { margin: .5rem 0; overflow-x: auto; overflow-y: hidden; }
+
+  /* Green sweep across the Confirm button on success */
+  .confirm-sweep { position: relative; overflow: hidden; }
+  .confirm-sweep::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, rgba(62, 218, 178, .9) 50%, transparent 100%);
+    transform: translateX(-120%);
+    animation: confirm-sweep-anim .9s ease-out;
+  }
+  @keyframes confirm-sweep-anim {
+    from { transform: translateX(-120%); }
+    to   { transform: translateX(120%); }
+  }
 </style>
