@@ -441,8 +441,11 @@
   .section-leave-to {
     opacity: 0; transform: scale(.98); max-height: 0; margin-top: 0;
   }
-  /* Smoothly slide remaining sections when one is added, removed or reordered */
-  .section-move { transition: transform .3s ease; }
+  /* Smoothly slide sections when one is added, removed or reordered (↑/↓ swap).
+     cubic-bezier gives a subtle settle so the swap reads as a real motion. */
+  .section-move { transition: transform .4s cubic-bezier(.22, 1, .36, 1); will-change: transform; }
+  /* Keep a leaving section out of flow so the others can slide past it cleanly */
+  .section-leave-active { position: absolute; width: 100%; z-index: 0; }
 
   @media (prefers-reduced-motion: reduce) {
     .chip-enter-active, .chip-leave-active,
