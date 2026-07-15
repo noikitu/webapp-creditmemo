@@ -148,7 +148,7 @@
       </div>
 
       <!-- Sections -->
-      <div class="space-y-4">
+      <TransitionGroup name="section" tag="div" class="space-y-4">
         <Card v-for="(block, i) in memo.blocks" :key="block.id">
           <CardContent>
             <div class="flex items-center justify-between mb-3">
@@ -212,7 +212,7 @@
             </Transition>
           </CardContent>
         </Card>
-      </div>
+      </TransitionGroup>
 
       <Button variant="outline" class="w-full mt-4 border-dashed" @click="store.addBlock()">
         <Plus class="h-4 w-4" /> Add a section
@@ -424,9 +424,30 @@
     max-height: 0; margin-top: 0; padding-top: 0; padding-bottom: 0;
   }
 
+  /* Section add / remove / reorder */
+  .section-enter-active {
+    transition: opacity .35s ease, transform .35s ease, max-height .35s ease,
+      margin-top .35s ease;
+    overflow: hidden; max-height: 1200px;
+  }
+  .section-leave-active {
+    transition: opacity .3s ease, transform .3s ease, max-height .3s ease,
+      margin-top .3s ease;
+    overflow: hidden; max-height: 1200px;
+  }
+  .section-enter-from {
+    opacity: 0; transform: translateY(-8px); max-height: 0; margin-top: 0;
+  }
+  .section-leave-to {
+    opacity: 0; transform: scale(.98); max-height: 0; margin-top: 0;
+  }
+  /* Smoothly slide remaining sections when one is added, removed or reordered */
+  .section-move { transition: transform .3s ease; }
+
   @media (prefers-reduced-motion: reduce) {
     .chip-enter-active, .chip-leave-active,
-    .reveal-enter-active, .reveal-leave-active { transition: none; }
+    .reveal-enter-active, .reveal-leave-active,
+    .section-enter-active, .section-leave-active, .section-move { transition: none; }
     .confirm-sweep::after, .run-sweep::after { animation: none; }
   }
 </style>
