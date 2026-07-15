@@ -103,12 +103,17 @@
   async function runAgent() {
     if (!validate()) return;
     running.value = true;
+    // Reveal paragraphs as the agent writes them: poll credit_memo during the run.
+    const poll = store.backendReady
+      ? window.setInterval(() => { store.refreshGenerated(); }, 1500)
+      : undefined;
     try {
       const n = await store.runAgent();
       toast.success(`Agent finished — ${n} paragraph(s) generated.`);
     } catch (e) {
       toast.error('Agent run failed: ' + (e as Error).message);
     } finally {
+      if (poll) window.clearInterval(poll);
       running.value = false;
     }
   }
@@ -166,32 +171,45 @@
 
             <div class="mb-1">
               <span class="text-xs font-medium text-muted-foreground">KPIs to include</span>
-              <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+              <TransitionGroup name="chip" tag="div" class="flex flex-wrap items-center gap-1.5 mt-1.5">
                 <span v-for="m in block.metrics" :key="m"
                   class="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-medium">
                   {{ m }}
                   <button type="button" class="opacity-60 hover:opacity-100"
                     @click="store.toggleMetric(block.id, m)"><X class="h-3 w-3" /></button>
                 </span>
-                <Button variant="outline" size="sm" class="h-7 rounded-full px-2.5"
+                <Button key="__add" variant="outline" size="sm" class="h-7 rounded-full px-2.5"
                   @click="openKpiPicker(block)">
                   <Plus class="h-3.5 w-3.5" /> Add KPI
                 </Button>
+              </TransitionGroup>
+            </div>
+
+            <!-- Skeleton while the agent is writing this section -->
+            <div v-if="running && !generatedFor(block.title)"
+              class="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <div class="animate-pulse space-y-2">
+                <div class="h-3 w-1/3 rounded bg-primary/25"></div>
+                <div class="h-2.5 w-full rounded bg-muted-foreground/20"></div>
+                <div class="h-2.5 w-11/12 rounded bg-muted-foreground/20"></div>
+                <div class="h-2.5 w-4/5 rounded bg-muted-foreground/20"></div>
               </div>
             </div>
 
-            <!-- Agent-generated paragraph -->
-            <div v-if="generatedFor(block.title)"
-              class="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
-              <div class="flex items-center justify-between mb-1.5">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
-                  <Sparkles class="h-3.5 w-3.5" /> Generated paragraph
-                </span>
-                <Button variant="ghost" size="icon" class="h-6 w-6"
-                  @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
+            <!-- Agent-generated paragraph (revealed when it arrives) -->
+            <Transition name="reveal">
+              <div v-if="generatedFor(block.title)"
+                class="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                    <Sparkles class="h-3.5 w-3.5" /> Generated paragraph
+                  </span>
+                  <Button variant="ghost" size="icon" class="h-6 w-6"
+                    @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
+                </div>
+                <MemoContent class="prose-memo text-sm" :content="generatedFor(block.title)!" />
               </div>
-              <MemoContent class="prose-memo text-sm" :content="generatedFor(block.title)!" />
-            </div>
+            </Transition>
           </CardContent>
         </Card>
       </div>
@@ -384,5 +402,19 @@
   @keyframes run-sweep-anim {
     from { transform: translateX(-120%); }
     to   { transform: translateX(120%); }
+  }
+
+  /* KPI chip pop in / out */
+  .chip-enter-active, .chip-leave-active { transition: opacity .18s ease, transform .18s ease; }
+  .chip-enter-from, .chip-leave-to { opacity: 0; transform: scale(.85); }
+
+  /* Generated paragraph reveal (fade + slide up) */
+  .reveal-enter-active { transition: opacity .35s ease, transform .35s ease; }
+  .reveal-enter-from { opacity: 0; transform: translateY(8px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chip-enter-active, .chip-leave-active,
+    .reveal-enter-active { transition: none; }
+    .confirm-sweep::after, .run-sweep::after { animation: none; }
   }
 </style>

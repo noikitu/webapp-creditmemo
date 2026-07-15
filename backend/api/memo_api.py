@@ -142,6 +142,13 @@ def get_memos():
     return jsonify({"memos": list_memos()})
 
 
+@memo_api.route("/generated")
+def get_generated_route():
+    """Paragraphs currently in credit_memo for a memo (used to poll during a run)."""
+    memo_id = (request.args.get("memo_id") or "").strip()
+    return jsonify({"items": read_generated(memo_id)})
+
+
 @memo_api.route("/all_kpi")
 def get_all_kpi():
     """Catalog of KPIs selectable in the Builder, from the all_KPI dataset."""

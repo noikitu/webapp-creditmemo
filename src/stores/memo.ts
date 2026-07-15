@@ -204,6 +204,12 @@ export const useMemoStore = defineStore('memo', {
       return Object.keys(m.generated).length;
     },
 
+    async refreshGenerated() {
+      const m = this.current;
+      if (!m || !this.backendReady) return;
+      try { const r = await api.generated(m.title); m.generated = genMap(r.items); } catch { /* ignore */ }
+    },
+
     async clearGenerated() {
       const m = this.current; if (!m) return;
       m.generated = {};
