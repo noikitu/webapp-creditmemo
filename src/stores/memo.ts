@@ -120,8 +120,11 @@ export const useMemoStore = defineStore('memo', {
       if (this.booted) return;
       this.booted = true;
       try {
-        const [k, mm] = await Promise.all([api.allKpi(), api.memos()]);
-        this.kpiOptions = k.items;
+        const [k, mm] = await Promise.all([api.kpiFull(), api.memos()]);
+        // Only offer KPIs that actually have values (skip empty ones).
+        this.kpiOptions = (k.items || [])
+          .filter((it) => (it.values || []).some((v) => v.kpi_value != null && v.kpi_value !== ''))
+          .map((it) => ({ kpi: it.kpi, category: it.category }));
         this.memos = mm.memos;
         this.backendReady = true;
         if (this.memos.length) await this.selectMemo(this.memos[0]);
