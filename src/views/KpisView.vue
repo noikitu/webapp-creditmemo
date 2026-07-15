@@ -32,10 +32,15 @@
     return Number.isFinite(n) ? n.toFixed(2) : String(v);
   }
 
+  // Keep only KPIs that have at least one actual value.
+  function hasValues(k: MergedKpi): boolean {
+    return (k.values || []).some((v) => v.kpi_value != null && v.kpi_value !== '');
+  }
+
   onMounted(async () => {
     try {
       const d = await api.kpiFull();
-      kpis.value = d.items || [];
+      kpis.value = (d.items || []).filter(hasValues);
       selected.value = kpis.value[0] || null;
     } catch { /* backend unavailable */ }
     loading.value = false;
