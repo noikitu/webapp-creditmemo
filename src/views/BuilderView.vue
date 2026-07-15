@@ -412,9 +412,21 @@
   .reveal-enter-active { transition: opacity .35s ease, transform .35s ease; }
   .reveal-enter-from { opacity: 0; transform: translateY(8px); }
 
+  /* Generated paragraph removal (fade + collapse) — plays on single X delete
+     and on Clear agent paragraphs. */
+  .reveal-leave-active {
+    transition: opacity .3s ease, transform .3s ease, margin-top .3s ease,
+      max-height .3s ease, padding-top .3s ease, padding-bottom .3s ease;
+    overflow: hidden; max-height: 600px;
+  }
+  .reveal-leave-to {
+    opacity: 0; transform: translateY(-6px) scale(.97);
+    max-height: 0; margin-top: 0; padding-top: 0; padding-bottom: 0;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .chip-enter-active, .chip-leave-active,
-    .reveal-enter-active { transition: none; }
+    .reveal-enter-active, .reveal-leave-active { transition: none; }
     .confirm-sweep::after, .run-sweep::after { animation: none; }
   }
 </style>
