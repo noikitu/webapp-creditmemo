@@ -145,7 +145,7 @@
       <!-- Sections -->
       <div class="space-y-4">
         <Card v-for="(block, i) in memo.blocks" :key="block.id">
-          <CardContent class="pt-6">
+          <CardContent>
             <div class="flex items-center justify-between mb-3">
               <span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Section {{ i + 1 }}
