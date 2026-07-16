@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref, nextTick } from 'vue';
   import { toast } from 'vue-sonner';
-  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud, RefreshCw, Pencil } from 'lucide-vue-next';
+  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud, RefreshCw, Pencil, FileDown } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
@@ -12,6 +12,8 @@
   } from '@/components/ui/dialog';
   import { useMemoStore, type Block } from '@/stores/memo';
   import MemoContent from '@/components/MemoContent.vue';
+  import { renderRich, typesetMath } from '@/lib/markdown';
+  import { api } from '@/api';
   import { cn } from '@/lib/utils';
 
   const store = useMemoStore();
@@ -161,6 +163,77 @@
     }
   }
 
+  // Export the generated memo to PDF via the browser's print-to-PDF.
+  // Builds an off-screen printable document (title + rendered sections),
+  // resolves every matplotlib chart, then triggers print.
+  const exporting = ref(false);
+
+  async function downloadPdf() {
+    const m = memo.value;
+    if (!m) return;
+    const sections = m.blocks.filter((b) => b.title.trim() && generatedFor(b.title));
+    if (!sections.length) { toast.error('Nothing to export yet — run the agent first.'); return; }
+    exporting.value = true;
+
+    const container = document.createElement('div');
+    container.className = 'memo-print-root';
+
+    const head = document.createElement('header');
+    head.className = 'memo-print-head';
+    const h1 = document.createElement('h1');
+    h1.textContent = m.title.trim() || 'Credit memo';
+    const dt = document.createElement('div');
+    dt.className = 'memo-print-date';
+    dt.textContent = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    head.appendChild(h1); head.appendChild(dt);
+    container.appendChild(head);
+
+    const charts: Array<{ id: string; code: string }> = [];
+    for (const b of sections) {
+      const sec = document.createElement('section');
+      sec.className = 'memo-print-section';
+      const st = document.createElement('h2');
+      st.textContent = b.title.trim();
+      sec.appendChild(st);
+      const body = document.createElement('div');
+      body.className = 'memo-content';
+      const { html, charts: cs } = renderRich(generatedFor(b.title)!);
+      body.innerHTML = html;
+      sec.appendChild(body);
+      container.appendChild(sec);
+      charts.push(...cs);
+    }
+
+    document.body.appendChild(container);
+    try { typesetMath(container); } catch { /* ignore KaTeX errors */ }
+
+    // Resolve every chart to a PNG before printing (otherwise they'd be missing).
+    await Promise.all(charts.map(async (c) => {
+      const box = document.getElementById(c.id);
+      if (!box) return;
+      try {
+        const res = await api.runPython(c.code);
+        box.innerHTML = res.status === 'ok' && res.image
+          ? `<img class="py-chart-img" alt="Chart" src="data:image/png;base64,${res.image}">`
+          : '<span class="py-error">⚠︎ chart unavailable</span>';
+      } catch {
+        box.innerHTML = '<span class="py-error">⚠︎ chart unavailable</span>';
+      }
+    }));
+
+    await nextTick();
+    const cleanup = () => {
+      document.body.classList.remove('printing-memo');
+      container.remove();
+      exporting.value = false;
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    document.body.classList.add('printing-memo');
+    window.print();
+    setTimeout(cleanup, 60000);   // fallback if afterprint never fires
+  }
+
   async function doDelete() {
     if (memo.value) await store.deleteMemo(memo.value.title);
     deleteOpen.value = false;
@@ -307,6 +380,9 @@
       <div class="flex items-center justify-end gap-2">
         <Button variant="ghost" class="text-destructive mr-auto" @click="deleteOpen = true">
           <Trash2 class="h-4 w-4" /> Delete this memo
+        </Button>
+        <Button variant="outline" :disabled="!hasGenerated || exporting || running" @click="downloadPdf">
+          <FileDown class="h-4 w-4" /> {{ exporting ? 'Preparing…' : 'Download PDF' }}
         </Button>
         <Button variant="outline" :disabled="running" :class="cn({ 'run-sweep': running })" @click="runAgent">
           <Sparkles class="h-4 w-4" /> {{ running ? 'Running…' : 'Run agent' }}
@@ -531,5 +607,48 @@
     .reveal-enter-active, .reveal-leave-active,
     .section-enter-active, .section-leave-active, .section-move { transition: none; }
     .confirm-sweep::after, .run-sweep::after { animation: none; }
+  }
+</style>
+
+<!-- Global (non-scoped): the printable document lives at <body> level, so its
+     styling can't rely on the component's scoped rules. -->
+<style>
+  .memo-print-root {
+    position: fixed; left: -100000px; top: 0; width: 720px;
+    background: #fff; color: #111;
+    font-size: 13px; line-height: 1.55;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .memo-print-head { border-bottom: 2px solid #111; padding-bottom: .55rem; margin-bottom: 1.4rem; }
+  .memo-print-head h1 { font-size: 22px; font-weight: 700; margin: 0; }
+  .memo-print-date { font-size: 12px; color: #555; margin-top: .25rem; }
+  .memo-print-section { margin-bottom: 1.25rem; }
+  .memo-print-section > h2 { font-size: 15px; font-weight: 700; margin: 0 0 .45rem; }
+
+  .memo-print-root p { margin: 0 0 .6rem; }
+  .memo-print-root h2 { font-size: 15px; font-weight: 600; margin: .2rem 0 .35rem; }
+  .memo-print-root strong { font-weight: 600; }
+  .memo-print-root ul, .memo-print-root ol { margin: 0 0 .6rem; padding-left: 1.25rem; }
+
+  .memo-print-root .memo-figure { margin: .6rem 0; }
+  .memo-print-root .memo-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .memo-print-root .memo-table th,
+  .memo-print-root .memo-table td { border: 1px solid #999; padding: .35rem .6rem; text-align: left; vertical-align: top; }
+  .memo-print-root .memo-table th { background: #eee; font-weight: 600; }
+  .memo-print-root .memo-figure figcaption { font-size: 11px; color: #555; font-style: italic; margin-top: .3rem; }
+  .memo-print-root .py-chart-img { max-width: 100%; height: auto; border: 1px solid #ddd; }
+  .memo-print-root .katex-display { margin: .5rem 0; overflow-x: auto; }
+
+  @media print {
+    @page { margin: 18mm 15mm; }
+    body.printing-memo #app { display: none !important; }
+    body.printing-memo .memo-print-root {
+      position: static !important; left: auto !important; top: auto !important; width: auto !important;
+    }
+    .memo-print-section,
+    .memo-print-root .memo-figure,
+    .memo-print-root table,
+    .memo-print-root .py-chart { break-inside: avoid; }
+    .memo-print-head { break-after: avoid; }
   }
 </style>
