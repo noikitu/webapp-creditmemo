@@ -611,6 +611,28 @@ def run_agent_section():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
+@memo_api.route("/save_generated", methods=["POST"])
+def save_generated():
+    """Overwrite one section's paragraph with user-edited content (manual edit)."""
+    try:
+        payload = request.get_json(force=True) or {}
+        memo_id = (payload.get("memo_title") or "").strip()
+        title = (payload.get("title") or "").strip()
+        content = payload.get("content") or ""
+        if not memo_id or not title:
+            return jsonify({"status": "error", "message": "memo_title and title are required"}), 400
+        df = read_df(MEMO_DATASET)
+        df = ensure_cols(df, MEMO_COLS) if df is not None else pd.DataFrame(columns=MEMO_COLS)
+        same_title = df["title"].fillna("").astype(str).str.strip().str.lower() == title.lower()
+        kept = df[~(memo_mask(df, memo_id) & same_title)][MEMO_COLS]
+        new_row = pd.DataFrame([{"memo_id": memo_id, "title": title, "content": content}], columns=MEMO_COLS)
+        dataiku.Dataset(MEMO_DATASET).write_with_schema(pd.concat([kept, new_row], ignore_index=True))
+        return jsonify({"status": "ok", "items": read_generated(memo_id)})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 @memo_api.route("/clear_generated", methods=["POST"])
 def clear_generated():
     try:

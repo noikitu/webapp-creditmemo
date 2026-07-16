@@ -233,6 +233,17 @@ export const useMemoStore = defineStore('memo', {
       return true;
     },
 
+    // Save a user-edited paragraph (manual edit via the pencil).
+    async saveGenerated(block: Block, content: string): Promise<void> {
+      const m = this.current; if (!m || !block.title.trim()) return;
+      const key = block.title.trim().toLowerCase();
+      m.generated[key] = content;
+      if (this.backendReady) {
+        const r = await api.saveGenerated({ memo_title: m.title.trim(), title: block.title.trim(), content });
+        m.generated = genMap(r.items);
+      }
+    },
+
     async refreshGenerated() {
       const m = this.current;
       if (!m || !this.backendReady) return;

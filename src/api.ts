@@ -82,6 +82,8 @@ export const api = {
     ),
   generated: (id: string) =>
     get<{ items: GeneratedItem[] }>('/generated?memo_id=' + encodeURIComponent(id)),
+  saveGenerated: (p: { memo_title: string; title: string; content: string }) =>
+    postJson<{ status: string; items: GeneratedItem[] }>('/save_generated', p),
   clearGenerated: (memo_title: string) =>
     postJson<{ status: string }>('/clear_generated', { memo_title }),
   deleteGenerated: (memo_title: string, title: string) =>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref, nextTick } from 'vue';
   import { toast } from 'vue-sonner';
-  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud, RefreshCw } from 'lucide-vue-next';
+  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud, RefreshCw, Pencil } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
@@ -23,6 +23,25 @@
   // Per-section iteration: which block is regenerating + its revision instruction
   const regenId = ref<number | null>(null);
   const instr = reactive<Record<number, string>>({});
+
+  // Per-section manual editing: which block is being edited + its draft text
+  const editId = ref<number | null>(null);
+  const draft = reactive<Record<number, string>>({});
+
+  function startEdit(block: Block) {
+    draft[block.id] = generatedFor(block.title) || '';
+    editId.value = block.id;
+  }
+  function cancelEdit() { editId.value = null; }
+  async function saveEdit(block: Block) {
+    try {
+      await store.saveGenerated(block, draft[block.id] ?? '');
+      editId.value = null;
+      toast.success('Paragraph updated.');
+    } catch (e) {
+      toast.error('Save failed: ' + (e as Error).message);
+    }
+  }
 
   // New-memo dialog (start from scratch or import)
   const newMemoOpen = ref(false);
@@ -228,25 +247,46 @@
                   <span class="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
                     <Sparkles class="h-3.5 w-3.5" /> Generated paragraph
                   </span>
-                  <Button variant="ghost" size="icon" class="h-6 w-6"
-                    @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
+                  <div class="flex items-center gap-0.5">
+                    <Button variant="ghost" size="icon" class="h-6 w-6" title="Edit manually"
+                      :disabled="regenId === block.id" @click="startEdit(block)"><Pencil class="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" class="h-6 w-6" title="Delete paragraph"
+                      @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
+                  </div>
                 </div>
-                <MemoContent class="prose-memo text-sm"
-                  :class="{ 'opacity-50 transition-opacity': regenId === block.id }"
-                  :content="generatedFor(block.title)!" />
 
-                <!-- Iterate with the agent on this section only -->
-                <div class="mt-3 flex items-center gap-2 border-t border-primary/15 pt-2.5">
-                  <Input v-model="instr[block.id]" class="h-8 text-xs"
-                    :disabled="regenId === block.id || running"
-                    placeholder="Ask the agent to revise — e.g. make it shorter, add the leverage ratio…"
-                    @keydown.enter="regenSection(block)" />
-                  <Button variant="outline" size="sm" class="h-8 shrink-0"
-                    :disabled="regenId === block.id || running" @click="regenSection(block)">
-                    <RefreshCw :class="cn('h-3.5 w-3.5', { 'animate-spin': regenId === block.id })" />
-                    {{ regenId === block.id ? 'Revising…' : 'Revise' }}
-                  </Button>
-                </div>
+                <!-- Manual edit mode -->
+                <template v-if="editId === block.id">
+                  <Textarea v-model="draft[block.id]" :rows="10"
+                    class="text-sm font-mono leading-relaxed"
+                    placeholder="Write the paragraph… (Markdown / LaTeX supported)" />
+                  <div class="mt-2 flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" class="h-8" @click="cancelEdit">Cancel</Button>
+                    <Button size="sm" class="h-8" @click="saveEdit(block)">
+                      <Check class="h-3.5 w-3.5" /> Save
+                    </Button>
+                  </div>
+                </template>
+
+                <!-- Rendered paragraph + agent revise bar -->
+                <template v-else>
+                  <MemoContent class="prose-memo text-sm"
+                    :class="{ 'opacity-50 transition-opacity': regenId === block.id }"
+                    :content="generatedFor(block.title)!" />
+
+                  <!-- Iterate with the agent on this section only -->
+                  <div class="mt-3 flex items-center gap-2 border-t border-primary/15 pt-2.5">
+                    <Input v-model="instr[block.id]" class="h-8 text-xs"
+                      :disabled="regenId === block.id || running"
+                      placeholder="Ask the agent to revise"
+                      @keydown.enter="regenSection(block)" />
+                    <Button variant="outline" size="sm" class="h-8 shrink-0"
+                      :disabled="regenId === block.id || running" @click="regenSection(block)">
+                      <RefreshCw :class="cn('h-3.5 w-3.5', { 'animate-spin': regenId === block.id })" />
+                      {{ regenId === block.id ? 'Revising…' : 'Revise' }}
+                    </Button>
+                  </div>
+                </template>
               </div>
             </Transition>
           </CardContent>
