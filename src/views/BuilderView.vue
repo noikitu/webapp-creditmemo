@@ -15,7 +15,6 @@
   import { renderRich, typesetMath } from '@/lib/markdown';
   import { api } from '@/api';
   import { cn } from '@/lib/utils';
-  import html2pdf from 'html2pdf.js';
 
   const store = useMemoStore();
   const memo = computed(() => store.current);
@@ -223,23 +222,16 @@
     }));
 
     await nextTick();
-    try {
-      const safe = (m.title.trim() || 'credit-memo').replace(/[^\w.-]+/g, '_');
-      await html2pdf().set({
-        margin: [12, 12, 14, 12],
-        filename: `${safe}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'avoid-all'] },
-      }).from(container).save();
-      toast.success('PDF downloaded.');
-    } catch (e) {
-      toast.error('PDF export failed: ' + (e as Error).message);
-    } finally {
+    const cleanup = () => {
+      document.body.classList.remove('printing-memo');
       container.remove();
       exporting.value = false;
-    }
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    document.body.classList.add('printing-memo');
+    window.print();
+    setTimeout(cleanup, 60000);   // fallback if afterprint never fires
   }
 
   async function doDelete() {
@@ -618,12 +610,11 @@
   }
 </style>
 
-<!-- Global (non-scoped): the export document is built at <body> level and
-     rasterized by html2pdf, so its styling can't rely on scoped rules. -->
+<!-- Global (non-scoped): the printable document lives at <body> level, so its
+     styling can't rely on the component's scoped rules. -->
 <style>
   .memo-print-root {
-    position: absolute; left: -100000px; top: 0; width: 720px;
-    padding: 4px 8px;
+    position: fixed; left: -100000px; top: 0; width: 720px;
     background: #fff; color: #111;
     font-size: 13px; line-height: 1.55;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -648,9 +639,17 @@
   .memo-print-root .py-chart-img { max-width: 100%; height: auto; border: 1px solid #ddd; }
   .memo-print-root .katex-display { margin: .5rem 0; overflow-x: auto; }
 
-  /* Keep tables, figures and charts from being split across pages */
-  .memo-print-section,
-  .memo-print-root .memo-figure,
-  .memo-print-root table,
-  .memo-print-root .py-chart { break-inside: avoid; page-break-inside: avoid; }
+  @media print {
+    @page { margin: 18mm 15mm; }
+    /* Hide the app; only the memo document prints */
+    body.printing-memo #app { display: none !important; }
+    body.printing-memo .memo-print-root {
+      position: static !important; left: auto !important; top: auto !important; width: auto !important;
+    }
+    .memo-print-section,
+    .memo-print-root .memo-figure,
+    .memo-print-root table,
+    .memo-print-root .py-chart { break-inside: avoid; page-break-inside: avoid; }
+    .memo-print-head { break-after: avoid; }
+  }
 </style>
