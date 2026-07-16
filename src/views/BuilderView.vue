@@ -1,7 +1,7 @@
 <script setup lang="ts">
-  import { computed, onMounted, ref, nextTick } from 'vue';
+  import { computed, onMounted, reactive, ref, nextTick } from 'vue';
   import { toast } from 'vue-sonner';
-  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud } from 'lucide-vue-next';
+  import { ChevronUp, ChevronDown, Trash2, Plus, Sparkles, Check, X, Eraser, FilePlus2, UploadCloud, RefreshCw } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
@@ -19,6 +19,10 @@
   const running = ref(false);
   const deleteOpen = ref(false);
   const confirmed = ref(false);   // triggers the green sweep on Save Memo
+
+  // Per-section iteration: which block is regenerating + its revision instruction
+  const regenId = ref<number | null>(null);
+  const instr = reactive<Record<number, string>>({});
 
   // New-memo dialog (start from scratch or import)
   const newMemoOpen = ref(false);
@@ -118,6 +122,26 @@
     }
   }
 
+  async function regenSection(block: Block) {
+    if (!block.title.trim()) { toast.error('This section needs a title first.'); return; }
+    if (regenId.value !== null || running.value) return;
+    regenId.value = block.id;
+    // Reveal the rewrite as it lands: poll credit_memo during the section run.
+    const poll = store.backendReady
+      ? window.setInterval(() => { store.refreshGenerated(); }, 1500)
+      : undefined;
+    try {
+      await store.runAgentSection(block, instr[block.id] || '');
+      instr[block.id] = '';
+      toast.success(`Section « ${block.title.trim()} » revised.`);
+    } catch (e) {
+      toast.error('Revision failed: ' + (e as Error).message);
+    } finally {
+      if (poll) window.clearInterval(poll);
+      regenId.value = null;
+    }
+  }
+
   async function doDelete() {
     if (memo.value) await store.deleteMemo(memo.value.title);
     deleteOpen.value = false;
@@ -207,7 +231,22 @@
                   <Button variant="ghost" size="icon" class="h-6 w-6"
                     @click="store.deleteGenerated(block.title)"><X class="h-3.5 w-3.5" /></Button>
                 </div>
-                <MemoContent class="prose-memo text-sm" :content="generatedFor(block.title)!" />
+                <MemoContent class="prose-memo text-sm"
+                  :class="{ 'opacity-50 transition-opacity': regenId === block.id }"
+                  :content="generatedFor(block.title)!" />
+
+                <!-- Iterate with the agent on this section only -->
+                <div class="mt-3 flex items-center gap-2 border-t border-primary/15 pt-2.5">
+                  <Input v-model="instr[block.id]" class="h-8 text-xs"
+                    :disabled="regenId === block.id || running"
+                    placeholder="Ask the agent to revise — e.g. make it shorter, add the leverage ratio…"
+                    @keydown.enter="regenSection(block)" />
+                  <Button variant="outline" size="sm" class="h-8 shrink-0"
+                    :disabled="regenId === block.id || running" @click="regenSection(block)">
+                    <RefreshCw :class="cn('h-3.5 w-3.5', { 'animate-spin': regenId === block.id })" />
+                    {{ regenId === block.id ? 'Revising…' : 'Revise' }}
+                  </Button>
+                </div>
               </div>
             </Transition>
           </CardContent>

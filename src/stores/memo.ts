@@ -204,6 +204,35 @@ export const useMemoStore = defineStore('memo', {
       return Object.keys(m.generated).length;
     },
 
+    // Regenerate one section only, optionally with a revision instruction.
+    // Returns true if the paragraph was (re)written.
+    async runAgentSection(block: Block, instruction: string): Promise<boolean> {
+      const m = this.current; if (!m || !block.title.trim()) return false;
+      this.registerCurrent();
+      const key = block.title.trim().toLowerCase();
+      if (this.backendReady) {
+        const r = await api.runAgentSection({
+          memo_title: m.title.trim(),
+          block: {
+            title: block.title.trim(),
+            description: block.description.trim(),
+            metrics: JSON.stringify(block.metrics),
+          },
+          instruction: instruction.trim(),
+          previous: m.generated[key] || '',
+        });
+        m.generated = genMap(r.items);
+        if (r.status !== 'ok') throw new Error(r.message || 'Agent produced no output.');
+        return true;
+      }
+      // Mock: rewrite the paragraph, noting the instruction if any.
+      const base = mockParagraph(block);
+      m.generated[key] = instruction.trim()
+        ? base + `\n\n_Revised per instruction: “${instruction.trim()}”._`
+        : base;
+      return true;
+    },
+
     async refreshGenerated() {
       const m = this.current;
       if (!m || !this.backendReady) return;

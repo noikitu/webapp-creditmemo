@@ -519,6 +519,98 @@ def run_agent():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
+@memo_api.route("/run_agent_section", methods=["POST"])
+def run_agent_section():
+    """Regenerate a SINGLE section, optionally following a revision instruction.
+
+    The DSS agent is driven by a memo_id (it reads structure_memo for that id and
+    writes paragraphs to credit_memo). To touch only one section we spin up a
+    throwaway memo_id holding just this block — with the current draft and the
+    user's instruction folded into its brief — run the agent on it, copy the
+    resulting paragraph back onto the real memo, then delete the temp rows.
+    """
+    try:
+        import uuid
+
+        payload = request.get_json(force=True) or {}
+        memo_id = (payload.get("memo_title") or "").strip()
+        block = payload.get("block") or {}
+        title = (block.get("title") or "").strip()
+        if not memo_id or not title:
+            return jsonify({"status": "error", "message": "memo_title and block.title are required"}), 400
+
+        description = (block.get("description") or "").strip()
+        metrics = (block.get("metrics") or "").strip()
+        instruction = (payload.get("instruction") or "").strip()
+        previous = (payload.get("previous") or "").strip()
+
+        # Brief for the one-section run: original brief + current draft + edit ask.
+        brief = description
+        if previous:
+            brief += "\n\n--- CURRENT DRAFT ---\n" + previous
+        if instruction:
+            brief += "\n\n--- REVISION INSTRUCTION ---\n" + instruction
+        brief += "\n\n(Rewrite only this section accordingly.)"
+
+        temp_id = "__section__" + uuid.uuid4().hex
+
+        # 1) Append a single throwaway structure row.
+        struct = read_df(DATASET_NAME)
+        temp_row = pd.DataFrame(
+            [{"memo_id": temp_id, "title": title, "description": brief, "metrics": metrics}],
+            columns=STRUCT_COLS,
+        )
+        if struct is not None and "memo_id" in struct.columns:
+            struct = ensure_cols(struct, STRUCT_COLS)
+            combined = pd.concat([struct[STRUCT_COLS], temp_row], ignore_index=True)
+        else:
+            combined = temp_row
+        dataiku.Dataset(DATASET_NAME).write_with_schema(combined)
+
+        try:
+            # 2) Run the agent on just that temp memo.
+            project = dataiku.api_client().get_default_project()
+            agent = find_agent(project)
+            agent.as_llm().new_completion().with_message(temp_id).execute()
+
+            # 3) Read the paragraph the agent produced for the temp memo.
+            mem = read_df(MEMO_DATASET)
+            new_content = ""
+            if mem is not None:
+                mem = ensure_cols(mem, MEMO_COLS)
+                same_title = mem["title"].fillna("").astype(str).str.strip().str.lower() == title.lower()
+                hits = mem[memo_mask(mem, temp_id) & same_title]
+                if not hits.empty:
+                    new_content = str(hits.iloc[-1]["content"] or "")
+        finally:
+            # 4) Always clean up temp rows (structure + credit_memo).
+            struct2 = read_df(DATASET_NAME)
+            if struct2 is not None and "memo_id" in struct2.columns:
+                struct2 = ensure_cols(struct2, STRUCT_COLS)
+                dataiku.Dataset(DATASET_NAME).write_with_schema(struct2[~memo_mask(struct2, temp_id)][STRUCT_COLS])
+            memc = read_df(MEMO_DATASET)
+            if memc is not None and "memo_id" in memc.columns:
+                memc = ensure_cols(memc, MEMO_COLS)
+                dataiku.Dataset(MEMO_DATASET).write_with_schema(memc[~memo_mask(memc, temp_id)][MEMO_COLS])
+
+        if not new_content.strip():
+            return jsonify({"status": "error", "message": "Agent produced no output for this section.",
+                            "items": read_generated(memo_id)}), 200
+
+        # 5) Replace this section's paragraph on the real memo.
+        mem3 = read_df(MEMO_DATASET)
+        mem3 = ensure_cols(mem3, MEMO_COLS) if mem3 is not None else pd.DataFrame(columns=MEMO_COLS)
+        same_title = mem3["title"].fillna("").astype(str).str.strip().str.lower() == title.lower()
+        kept = mem3[~(memo_mask(mem3, memo_id) & same_title)][MEMO_COLS]
+        new_row = pd.DataFrame([{"memo_id": memo_id, "title": title, "content": new_content}], columns=MEMO_COLS)
+        dataiku.Dataset(MEMO_DATASET).write_with_schema(pd.concat([kept, new_row], ignore_index=True))
+
+        return jsonify({"status": "ok", "items": read_generated(memo_id), "content": new_content})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 @memo_api.route("/clear_generated", methods=["POST"])
 def clear_generated():
     try:

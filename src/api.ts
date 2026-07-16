@@ -71,6 +71,15 @@ export const api = {
     postJson<{ status: string; count: number; memos: string[] }>('/structure', p),
   runAgent: (p: MemoPayload) =>
     postJson<{ status: string; items: GeneratedItem[]; memos: string[] }>('/run_agent', p),
+  runAgentSection: (p: {
+    memo_title: string;
+    block: { title: string; description: string; metrics: string };
+    instruction?: string;
+    previous?: string;
+  }) =>
+    postJson<{ status: string; message?: string; items: GeneratedItem[]; content?: string }>(
+      '/run_agent_section', p,
+    ),
   generated: (id: string) =>
     get<{ items: GeneratedItem[] }>('/generated?memo_id=' + encodeURIComponent(id)),
   clearGenerated: (memo_title: string) =>
