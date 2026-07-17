@@ -5,7 +5,12 @@
   import { api, isExcelName } from '@/api';
 
   const props = defineProps<{ content: string }>();
-  const emit = defineEmits<{ (e: 'open-source', file: string): void }>();
+  const emit = defineEmits<{ (e: 'open-source', name: string): void }>();
+
+  // Reconstruct the canonical "file (sheet)" name so the viewer can focus the sheet.
+  function openSource(s: SourceRef) {
+    emit('open-source', s.sheet ? `${s.file} (${s.sheet})` : s.file);
+  }
   const root = ref<HTMLElement | null>(null);
   const html = ref('');
   const sources = ref<SourceRef[]>([]);
@@ -59,11 +64,11 @@
     <!-- Clickable "Sources Used" footer -->
     <div v-if="sources.length" class="memo-sources">
       <span class="memo-sources-label">Sources</span>
-      <button v-for="s in sources" :key="s.file" type="button"
-        class="memo-source-chip" :title="s.label" @click="emit('open-source', s.file)">
+      <button v-for="s in sources" :key="s.file + '|' + s.sheet" type="button"
+        class="memo-source-chip" :title="s.label" @click="openSource(s)">
         <FileSpreadsheet v-if="isExcelName(s.file)" class="memo-source-icon" />
         <FileText v-else class="memo-source-icon" />
-        {{ s.file }}
+        {{ s.file }}<span v-if="s.sheet" class="memo-source-sheet"> ({{ s.sheet }})</span>
       </button>
     </div>
   </div>
@@ -94,4 +99,5 @@
     border-color: color-mix(in oklab, var(--primary) 40%, transparent);
   }
   .memo-source-icon { width: .85rem; height: .85rem; flex-shrink: 0; }
+  .memo-source-sheet { opacity: .7; font-weight: 400; }
 </style>

@@ -122,12 +122,13 @@ export function renderRich(src: string): RichResult {
 }
 
 // ---- "Sources Used:" footer extraction -----------------------------------
-export interface SourceRef { label: string; file: string; }
+export interface SourceRef { label: string; file: string; sheet: string; }
 export interface ExtractResult { body: string; sources: SourceRef[]; }
 
 const SOURCES_HEADER =
   /^\s*[*_#>\s]*sources?\s*(?:used|utilis[ée]s|consult[ée]s)?\s*[:：]/i;
-const FILE_RE = /([^\s"'()<>]+\.(?:pdf|xlsx?|xlsm|docx?|csv|txt|pptx?))/i;
+// filename (+ optional trailing "(Sheet Name)" for Excel sources)
+const FILE_RE = /([^\s"'()<>]+\.(?:pdf|xlsx?|xlsm|docx?|csv|txt|pptx?))\s*(?:\(([^)]*)\))?/i;
 
 function cleanSourceItem(s: string): string {
   return s
@@ -158,10 +159,11 @@ export function extractSources(src: string): ExtractResult {
   for (const it of items) {
     const m = FILE_RE.exec(it);
     const file = m ? m[1] : it;
-    const key = file.toLowerCase();
+    const sheet = m && m[2] ? m[2].trim() : '';
+    const key = (file + '|' + sheet).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    sources.push({ label: it, file });
+    sources.push({ label: it, file, sheet });
   }
   const body = lines.slice(0, idx).join('\n').replace(/\s+$/, '');
   return { body, sources };

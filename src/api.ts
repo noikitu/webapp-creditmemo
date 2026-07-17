@@ -113,3 +113,11 @@ export interface ExcelSheet {
 
 // Which source documents can be previewed as a spreadsheet vs a PDF.
 export const isExcelName = (name: string): boolean => /\.(xlsx|xls|xlsm)$/i.test(name || '');
+
+// Source names may carry a trailing sheet name in parentheses, e.g.
+// "TerraNova_..._Aging.xlsx (Debt Schedule)" -> { file, sheet }.
+export function parseSourceName(raw: string): { file: string; sheet: string } {
+  const s = (raw || '').trim();
+  const m = /^(.*\.(?:xlsx|xls|xlsm|pdf|docx?|csv|txt|pptx?))\s*(?:\(([^)]*)\))?\s*$/i.exec(s);
+  return m ? { file: m[1].trim(), sheet: (m[2] || '').trim() } : { file: s, sheet: '' };
+}

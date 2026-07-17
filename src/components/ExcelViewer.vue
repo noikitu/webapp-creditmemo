@@ -2,10 +2,21 @@
   import { ref, computed, watch } from 'vue';
   import type { ExcelSheet } from '@/api';
 
-  const props = defineProps<{ sheets: ExcelSheet[]; highlight?: string }>();
+  const props = defineProps<{ sheets: ExcelSheet[]; highlight?: string; initialSheet?: string }>();
   const active = ref(0);
 
-  watch(() => props.sheets, () => { active.value = 0; });
+  // Focus the requested sheet (name match, case-insensitive) when data arrives.
+  function pickInitial() {
+    const want = (props.initialSheet || '').trim().toLowerCase();
+    if (want) {
+      const i = props.sheets.findIndex((s) => s.name.trim().toLowerCase() === want);
+      if (i >= 0) { active.value = i; return; }
+      const j = props.sheets.findIndex((s) => s.name.trim().toLowerCase().includes(want));
+      if (j >= 0) { active.value = j; return; }
+    }
+    active.value = 0;
+  }
+  watch(() => [props.sheets, props.initialSheet], pickInitial, { immediate: true });
 
   const current = computed(() => props.sheets[active.value] || null);
 

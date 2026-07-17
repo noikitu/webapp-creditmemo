@@ -178,35 +178,47 @@ def get_input_kpi():
     return jsonify({"columns": [str(c) for c in safe.columns], "rows": safe.values.tolist()})
 
 
+def _strip_sheet_suffix(name):
+    """"TerraNova_...DebtSchedule.xlsx (Debt Schedule)" -> the file name only.
+
+    The pipeline may append the source sheet name in parentheses to Excel
+    document names; strip it so the file resolves in the folder."""
+    return re.sub(r"\s*\([^()]*\)\s*$", "", name or "").strip()
+
+
+def _find_in_data_folder(name):
+    """Resolve a file (by full path or basename) inside the Data folder,
+    tolerating a trailing " (Sheet Name)" suffix on Excel documents."""
+    folder = dataiku.Folder(DATA_FOLDER)
+    candidates = [name]
+    stripped = _strip_sheet_suffix(name)
+    if stripped and stripped != name:
+        candidates.append(stripped)
+    wanted = set()
+    for c in candidates:
+        c = (c or "").lstrip("/")
+        wanted.add(c)
+        wanted.add(c.split("/")[-1])
+    for p in folder.list_paths_in_partition():
+        clean = p.lstrip("/")
+        if clean in wanted or clean.split("/")[-1] in wanted:
+            return folder, p
+    return folder, None
+
+
 @memo_api.route("/document")
 def get_document():
     """Stream a source document (by file name) from the Data managed folder."""
     name = (request.args.get("name") or "").strip()
     if not name:
         return jsonify({"error": "missing name"}), 400
-    folder = dataiku.Folder(DATA_FOLDER)
-    target = None
-    for p in folder.list_paths_in_partition():
-        clean = p.lstrip("/")
-        if clean == name.lstrip("/") or clean.split("/")[-1] == name.split("/")[-1]:
-            target = p
-            break
+    folder, target = _find_in_data_folder(name)
     if target is None:
         return jsonify({"error": "not found: %s" % name}), 404
     with folder.get_download_stream(target) as stream:
         data = stream.read()
     mimetype = "application/pdf" if target.lower().endswith(".pdf") else "application/octet-stream"
     return Response(data, mimetype=mimetype)
-
-
-def _find_in_data_folder(name):
-    """Resolve a file (by full path or basename) inside the Data folder."""
-    folder = dataiku.Folder(DATA_FOLDER)
-    for p in folder.list_paths_in_partition():
-        clean = p.lstrip("/")
-        if clean == name.lstrip("/") or clean.split("/")[-1] == name.split("/")[-1]:
-            return folder, p
-    return folder, None
 
 
 def _excel_cell(v):
