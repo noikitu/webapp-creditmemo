@@ -98,6 +98,11 @@ export const api = {
   runPython: (code: string) =>
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
   kpiFull: () => get<{ items: MergedKpi[] }>('/kpi_full'),
+  inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
+  cleanInputKpi: () =>
+    postJson<{ status: string; message?: string; columns: string[]; rows: unknown[][]; cleared: string[] }>(
+      '/clean_input_kpi',
+    ),
   documentUrl: (name: string) => backendUrl('/document?name=' + encodeURIComponent(name)),
   excelPreview: (name: string) =>
     get<{ sheets: ExcelSheet[]; error?: string }>('/excel_preview?name=' + encodeURIComponent(name)),

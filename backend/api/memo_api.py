@@ -795,6 +795,33 @@ def add_metrics():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
+@memo_api.route("/clean_input_kpi", methods=["POST"])
+def clean_input_kpi():
+    """Dev tool: blank every column of input_KPI except metric & fiscal_year.
+
+    Leaves the (metric, fiscal_year) skeleton so the KPI Filler agent can be
+    re-run from a clean slate. Rows and schema are preserved."""
+    try:
+        keep = {"metric", "fiscal_year"}
+        df = read_df(INPUT_KPI_DATASET)
+        if df is None:
+            return jsonify({"status": "ok", "columns": [], "rows": [], "cleared": []})
+        cleared = [c for c in df.columns if c not in keep]
+        for col in cleared:
+            df[col] = None
+        dataiku.Dataset(INPUT_KPI_DATASET).write_with_schema(df)
+        safe = df.astype(object).where(pd.notna(df), None)
+        return jsonify({
+            "status": "ok",
+            "columns": [str(c) for c in safe.columns],
+            "rows": safe.values.tolist(),
+            "cleared": cleared,
+        })
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 @memo_api.route("/run_python", methods=["POST"])
 def run_python():
     """Execute a matplotlib snippet (from a <python> block) -> base64 PNG.

@@ -1,0 +1,141 @@
+<script setup lang="ts">
+  import { ref, onMounted } from 'vue';
+  import { toast } from 'vue-sonner';
+  import { Eraser, RefreshCw, Database, AlertTriangle } from 'lucide-vue-next';
+  import { Card, CardContent } from '@/components/ui/card';
+  import { Button } from '@/components/ui/button';
+  import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
+  } from '@/components/ui/dialog';
+  import { api } from '@/api';
+
+  const MAX_ROWS = 100;
+  const KEPT = ['metric', 'fiscal_year'];
+
+  const columns = ref<string[]>([]);
+  const rows = ref<unknown[][]>([]);
+  const loading = ref(false);
+  const cleaning = ref(false);
+  const confirmOpen = ref(false);
+
+  function fmt(v: unknown): string {
+    return v == null || v === '' ? '' : String(v);
+  }
+  function isKept(col: string): boolean {
+    return KEPT.includes(col.toLowerCase());
+  }
+
+  async function refresh() {
+    loading.value = true;
+    try {
+      const d = await api.inputKpi();
+      columns.value = d.columns || [];
+      rows.value = d.rows || [];
+    } catch (e) {
+      toast.error('Could not load input_KPI: ' + (e as Error).message);
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function doClean() {
+    cleaning.value = true;
+    try {
+      const d = await api.cleanInputKpi();
+      if (d.status !== 'ok') throw new Error(d.message || 'clean failed');
+      columns.value = d.columns || [];
+      rows.value = d.rows || [];
+      confirmOpen.value = false;
+      toast.success(`input_KPI cleaned — cleared ${d.cleared.length} column(s), kept ${KEPT.join(' & ')}.`);
+    } catch (e) {
+      toast.error('Clean failed: ' + (e as Error).message);
+    } finally {
+      cleaning.value = false;
+    }
+  }
+
+  onMounted(refresh);
+</script>
+
+<template>
+  <div class="max-w-5xl mx-auto px-8 py-10">
+    <h1 class="text-2xl font-semibold mb-1">Dev Tools</h1>
+    <p class="text-muted-foreground mb-8">
+      Maintenance utilities for the underlying datasets. Use with care — these write directly to DSS.
+    </p>
+
+    <Card>
+      <CardContent class="space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2 font-medium">
+              <Database class="h-4 w-4 text-primary" /> Clean <code class="text-primary">input_KPI</code>
+            </div>
+            <p class="text-sm text-muted-foreground mt-1">
+              Blanks every column <strong>except</strong>
+              <code v-for="c in KEPT" :key="c" class="mx-0.5 rounded bg-muted px-1 py-0.5 text-xs">{{ c }}</code>,
+              leaving the skeleton ready for a fresh KPI Filler run. Rows and schema are preserved.
+            </p>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="loading" @click="refresh">
+              <RefreshCw :class="['h-4 w-4', { 'animate-spin': loading }]" />
+            </Button>
+            <Button variant="destructive" :disabled="cleaning || loading" @click="confirmOpen = true">
+              <Eraser class="h-4 w-4" /> Clean input_KPI
+            </Button>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div class="rounded-lg border overflow-auto max-h-[60vh]">
+          <table v-if="columns.length" class="w-max min-w-full text-xs">
+            <thead>
+              <tr>
+                <th v-for="c in columns" :key="c"
+                  :class="['sticky top-0 z-10 border-b px-3 py-2 text-left font-semibold whitespace-nowrap',
+                    isKept(c) ? 'bg-primary/10 text-primary' : 'bg-muted text-foreground']">
+                  {{ c }}<span v-if="isKept(c)" class="ml-1 opacity-60">(kept)</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, ri) in rows.slice(0, MAX_ROWS)" :key="ri" class="odd:bg-muted/30">
+                <td v-for="(cell, ci) in row" :key="ci" class="border-b px-3 py-1.5 whitespace-nowrap">
+                  {{ fmt(cell) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="py-10 text-center text-sm text-muted-foreground">
+            {{ loading ? 'Loading…' : 'input_KPI is empty or unavailable.' }}
+          </div>
+        </div>
+        <div v-if="rows.length" class="text-xs text-muted-foreground">
+          {{ rows.length }} row(s){{ rows.length > MAX_ROWS ? ` — showing first ${MAX_ROWS}` : '' }}.
+        </div>
+      </CardContent>
+    </Card>
+
+    <!-- Confirm -->
+    <Dialog v-model:open="confirmOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <AlertTriangle class="h-4 w-4 text-destructive" /> Clean input_KPI?
+          </DialogTitle>
+          <DialogDescription>
+            This blanks all columns of <code>input_KPI</code> except
+            <strong>{{ KEPT.join(' & ') }}</strong>. This action writes to DSS and cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child><Button variant="outline">Cancel</Button></DialogClose>
+          <Button variant="destructive" :disabled="cleaning" @click="doClean">
+            <Eraser class="h-4 w-4" /> {{ cleaning ? 'Cleaning…' : 'Yes, clean' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </div>
+</template>
