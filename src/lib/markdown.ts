@@ -127,14 +127,17 @@ export interface ExtractResult { body: string; sources: SourceRef[]; }
 
 const SOURCES_HEADER =
   /^\s*[*_#>\s]*sources?\s*(?:used|utilis[ée]s|consult[ée]s)?\s*[:：]/i;
-// filename (+ optional trailing "(Sheet Name)" for Excel sources)
-const FILE_RE = /([^\s"'()<>]+\.(?:pdf|xlsx?|xlsm|docx?|csv|txt|pptx?))\s*(?:\(([^)]*)\))?/i;
+// filename (+ optional trailing "(Sheet Name)" for Excel sources).
+// Note: underscores are allowed (they're common in file names); only spaces,
+// quotes, brackets, '*' and backticks are excluded.
+const FILE_RE = /([^\s"'()<>*`]+\.(?:pdf|xlsx?|xlsm|docx?|csv|txt|pptx?))\s*(?:\(([^)]*)\))?/i;
 
 function cleanSourceItem(s: string): string {
   return s
-    .replace(/^\s*[-*+•]\s*/, '')          // bullet
+    .replace(/^\s*[-+•]\s+/, '')           // bullet (space-delimited; keep *emphasis*)
     .replace(/^\s*\d+[.)]\s*/, '')         // numbering
-    .replace(/[*_`]/g, '')                 // md emphasis / code
+    .replace(/^[*_`~]+/, '')               // leading md emphasis wrapper (NOT inner _)
+    .replace(/[*_`~]+$/, '')               // trailing md emphasis wrapper
     .replace(/^\s*["'“”[(]+|["'”\])]+\s*$/g, '')  // wrapping quotes/brackets
     .replace(/[.;,]+\s*$/, '')             // trailing punctuation
     .trim();
@@ -152,18 +155,22 @@ export function extractSources(src: string): ExtractResult {
 
   const afterColon = lines[idx].replace(SOURCES_HEADER, '');
   const rest = [afterColon, ...lines.slice(idx + 1)].join('\n');
-  const items = rest.split(/[\n,;]+/).map(cleanSourceItem).filter(Boolean);
+  const items = rest.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
 
   const sources: SourceRef[] = [];
   const seen = new Set<string>();
-  for (const it of items) {
-    const m = FILE_RE.exec(it);
-    const file = m ? m[1] : it;
+  for (const raw of items) {
+    const label = cleanSourceItem(raw);
+    if (!label) continue;
+    // Extract the file (and optional sheet) from the RAW item so markdown
+    // wrappers (*, **, quotes) and the "(Sheet)" suffix stay intact.
+    const m = FILE_RE.exec(raw);
+    const file = m ? m[1] : label;
     const sheet = m && m[2] ? m[2].trim() : '';
     const key = (file + '|' + sheet).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    sources.push({ label: it, file, sheet });
+    sources.push({ label, file, sheet });
   }
   const body = lines.slice(0, idx).join('\n').replace(/\s+$/, '');
   return { body, sources };
