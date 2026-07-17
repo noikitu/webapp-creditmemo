@@ -99,4 +99,17 @@ export const api = {
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
   kpiFull: () => get<{ items: MergedKpi[] }>('/kpi_full'),
   documentUrl: (name: string) => backendUrl('/document?name=' + encodeURIComponent(name)),
+  excelPreview: (name: string) =>
+    get<{ sheets: ExcelSheet[]; error?: string }>('/excel_preview?name=' + encodeURIComponent(name)),
 };
+
+export interface ExcelSheet {
+  name: string;
+  columns: string[];
+  rows: string[][];
+  truncated: boolean;
+  total_rows: number;
+}
+
+// Which source documents can be previewed as a spreadsheet vs a PDF.
+export const isExcelName = (name: string): boolean => /\.(xlsx|xls|xlsm)$/i.test(name || '');

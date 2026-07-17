@@ -199,6 +199,68 @@ def get_document():
     return Response(data, mimetype=mimetype)
 
 
+def _find_in_data_folder(name):
+    """Resolve a file (by full path or basename) inside the Data folder."""
+    folder = dataiku.Folder(DATA_FOLDER)
+    for p in folder.list_paths_in_partition():
+        clean = p.lstrip("/")
+        if clean == name.lstrip("/") or clean.split("/")[-1] == name.split("/")[-1]:
+            return folder, p
+    return folder, None
+
+
+def _excel_cell(v):
+    """Human-friendly string for an Excel cell value."""
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else ("%.4f" % v).rstrip("0").rstrip(".")
+    try:
+        import datetime
+        if isinstance(v, (pd.Timestamp, datetime.datetime, datetime.date)):
+            return str(v)[:10]
+    except Exception:  # noqa: BLE001
+        pass
+    return str(v)
+
+
+@memo_api.route("/excel_preview")
+def excel_preview():
+    """Preview an Excel source: every sheet as {name, columns, rows} (truncated)."""
+    import io as _io
+
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing name"}), 400
+    folder, target = _find_in_data_folder(name)
+    if target is None:
+        return jsonify({"error": "not found: %s" % name}), 404
+    with folder.get_download_stream(target) as stream:
+        data = stream.read()
+    try:
+        sheets_dict = pd.read_excel(_io.BytesIO(data), sheet_name=None, header=0)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"error": "Could not read Excel file: %s" % exc}), 500
+
+    max_rows = 200
+    sheets = []
+    for sname, full in sheets_dict.items():
+        total = int(len(full))
+        view = full.head(max_rows)
+        safe = view.astype(object).where(pd.notna(view), None)
+        cols = ["" if re.match(r"^Unnamed: \d+$", str(c)) else str(c) for c in safe.columns]
+        rows = [[_excel_cell(v) for v in rec] for rec in safe.values.tolist()]
+        sheets.append({
+            "name": str(sname),
+            "columns": cols,
+            "rows": rows,
+            "truncated": total > max_rows,
+            "total_rows": total,
+        })
+    return jsonify({"sheets": sheets})
+
+
 # ---------------------------------------------------------------------------
 # KPI lineage (formula -> metrics -> source documents)
 # ---------------------------------------------------------------------------

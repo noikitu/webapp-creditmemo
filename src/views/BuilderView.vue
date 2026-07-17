@@ -12,6 +12,7 @@
   } from '@/components/ui/dialog';
   import { useMemoStore, type Block } from '@/stores/memo';
   import MemoContent from '@/components/MemoContent.vue';
+  import DocumentDialog from '@/components/DocumentDialog.vue';
   import { renderRich, typesetMath } from '@/lib/markdown';
   import { api } from '@/api';
   import { cn } from '@/lib/utils';
@@ -29,6 +30,11 @@
   // Per-section manual editing: which block is being edited + its draft text
   const editId = ref<number | null>(null);
   const draft = reactive<Record<number, string>>({});
+
+  // Source-document preview (opened from the "Sources Used" chips)
+  const docOpen = ref(false);
+  const docName = ref('');
+  function openDoc(file: string) { docName.value = file; docOpen.value = true; }
 
   function startEdit(block: Block) {
     draft[block.id] = generatedFor(block.title) || '';
@@ -345,7 +351,7 @@
                 <template v-else>
                   <MemoContent class="prose-memo text-sm"
                     :class="{ 'opacity-50 transition-opacity': regenId === block.id }"
-                    :content="generatedFor(block.title)!" />
+                    :content="generatedFor(block.title)!" @open-source="openDoc" />
 
                   <!-- Iterate with the agent on this section only -->
                   <div class="mt-3 flex items-center gap-2 border-t border-primary/15 pt-2.5">
@@ -459,6 +465,9 @@
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Source document preview (PDF or Excel) -->
+    <DocumentDialog v-model:open="docOpen" :name="docName" />
 
     <!-- Delete confirmation -->
     <Dialog v-model:open="deleteOpen">

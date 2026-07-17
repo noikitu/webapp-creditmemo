@@ -3,8 +3,7 @@
   import { FileSearch, Sigma } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
-  import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-  import PdfViewer from '@/components/PdfViewer.vue';
+  import DocumentDialog from '@/components/DocumentDialog.vue';
   import { api, type MergedKpi } from '@/api';
   import { cn } from '@/lib/utils';
 
@@ -142,16 +141,7 @@
       {{ loading ? 'Loading…' : 'No KPI available yet.' }}
     </CardContent></Card>
 
-    <Dialog v-model:open="open">
-      <DialogContent class="!w-[96vw] !max-w-[1800px]">
-        <DialogHeader><DialogTitle class="truncate">{{ activeDoc || 'Source document' }}</DialogTitle></DialogHeader>
-        <PdfViewer v-if="open && activeDoc" :url="api.documentUrl(activeDoc)" :highlight="activeQuote" />
-        <div v-if="activeQuote" class="mt-1">
-          <div class="text-xs font-medium text-muted-foreground mb-1">Extracted quote</div>
-          <pre class="kpi-quote">{{ activeQuote }}</pre>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <DocumentDialog v-model:open="open" :name="activeDoc" :quote="activeQuote" />
   </div>
 </template>
 

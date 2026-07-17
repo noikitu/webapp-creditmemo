@@ -121,6 +121,52 @@ export function renderRich(src: string): RichResult {
   return { html, charts };
 }
 
+// ---- "Sources Used:" footer extraction -----------------------------------
+export interface SourceRef { label: string; file: string; }
+export interface ExtractResult { body: string; sources: SourceRef[]; }
+
+const SOURCES_HEADER =
+  /^\s*[*_#>\s]*sources?\s*(?:used|utilis[ée]s|consult[ée]s)?\s*[:：]/i;
+const FILE_RE = /([^\s"'()<>]+\.(?:pdf|xlsx?|xlsm|docx?|csv|txt|pptx?))/i;
+
+function cleanSourceItem(s: string): string {
+  return s
+    .replace(/^\s*[-*+•]\s*/, '')          // bullet
+    .replace(/^\s*\d+[.)]\s*/, '')         // numbering
+    .replace(/[*_`]/g, '')                 // md emphasis / code
+    .replace(/^\s*["'“”[(]+|["'”\])]+\s*$/g, '')  // wrapping quotes/brackets
+    .replace(/[.;,]+\s*$/, '')             // trailing punctuation
+    .trim();
+}
+
+// Split off a trailing "Sources Used:" section into clickable document refs.
+export function extractSources(src: string): ExtractResult {
+  if (!src) return { body: '', sources: [] };
+  const lines = src.split(/\r?\n/);
+  let idx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (SOURCES_HEADER.test(lines[i])) { idx = i; break; }
+  }
+  if (idx === -1) return { body: src, sources: [] };
+
+  const afterColon = lines[idx].replace(SOURCES_HEADER, '');
+  const rest = [afterColon, ...lines.slice(idx + 1)].join('\n');
+  const items = rest.split(/[\n,;]+/).map(cleanSourceItem).filter(Boolean);
+
+  const sources: SourceRef[] = [];
+  const seen = new Set<string>();
+  for (const it of items) {
+    const m = FILE_RE.exec(it);
+    const file = m ? m[1] : it;
+    const key = file.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push({ label: it, file });
+  }
+  const body = lines.slice(0, idx).join('\n').replace(/\s+$/, '');
+  return { body, sources };
+}
+
 export function typesetMath(el: HTMLElement): void {
   renderMathInElement(el, {
     delimiters: [
