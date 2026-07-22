@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { ref, onMounted, onBeforeUnmount } from 'vue';
   import { toast } from 'vue-sonner';
-  import { Eraser, RefreshCw, Database, AlertTriangle, Sparkles } from 'lucide-vue-next';
+  import { Eraser, RefreshCw, Database, AlertTriangle, Sparkles, X } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import {
@@ -18,6 +18,7 @@
   const cleaning = ref(false);
   const confirmOpen = ref(false);
   const extracting = ref(false);
+  const extractError = ref('');
   let poll: number | undefined;
 
   function fmt(v: unknown): string {
@@ -43,6 +44,7 @@
   async function runExtraction() {
     if (extracting.value) return;
     extracting.value = true;
+    extractError.value = '';
     // Show rows appear live while the agent writes to input_KPI.
     poll = window.setInterval(async () => {
       try {
@@ -58,7 +60,8 @@
       rows.value = d.rows || [];
       toast.success(`KPI Extraction finished — ${rows.value.length} row(s) in input_KPI.`);
     } catch (e) {
-      toast.error('KPI Extraction failed: ' + (e as Error).message);
+      extractError.value = (e as Error).message || 'Unknown error';
+      toast.error('KPI Extraction failed.');
     } finally {
       if (poll) { window.clearInterval(poll); poll = undefined; }
       extracting.value = false;
@@ -118,6 +121,20 @@
           </div>
         </div>
 
+        <!-- Agent error (persistent, so it can be read/copied) -->
+        <div v-if="extractError"
+          class="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <span class="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+              <AlertTriangle class="h-3.5 w-3.5" /> KPI Extraction failed
+            </span>
+            <button type="button" class="text-destructive/70 hover:text-destructive" @click="extractError = ''">
+              <X class="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <pre class="dev-error">{{ extractError }}</pre>
+        </div>
+
         <!-- Preview -->
         <div class="rounded-lg border overflow-auto max-h-[60vh]">
           <table v-if="columns.length" class="w-max min-w-full text-xs">
@@ -172,6 +189,12 @@
 </template>
 
 <style scoped>
+  .dev-error {
+    margin: 0; max-height: 30vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: .75rem; line-height: 1.45; color: var(--destructive);
+  }
+
   /* Looping blue sweep while the KPI Extraction agent runs */
   .run-sweep { position: relative; overflow: hidden; }
   .run-sweep::after {

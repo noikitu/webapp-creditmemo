@@ -22,7 +22,15 @@ async function http<T>(path: string, opts?: RequestInit, timeout = 60000): Promi
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
     const r = await fetch(resolveUrl(path), { signal: ctrl.signal, ...opts });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      // Surface the backend's error message (e.g. an agent failure) instead of a bare status.
+      let msg = 'HTTP ' + r.status;
+      try {
+        const j = await r.json();
+        if (j && typeof j.message === 'string' && j.message) msg = j.message;
+      } catch { /* non-JSON error body */ }
+      throw new Error(msg);
+    }
     return (await r.json()) as T;
   } finally {
     clearTimeout(timer);
