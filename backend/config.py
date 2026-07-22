@@ -29,6 +29,9 @@ METRICS_FOLDER = "tiSmyWaP"       # "Documents Metrics": metric documents droppe
 AGENT_NAME = "Credit Memo"            # writes the memo paragraphs
 KPI_EXTRACTION_AGENT = "KPI Extraction"  # fills input_KPI from the source documents
 
+# Scenarios
+SCENARIO_BUILD_METRICS = "BUILD_METRICS"  # run after KPI extraction to build downstream
+
 # Schemas
 STRUCT_COLS = ["memo_id", "title", "description", "metrics"]
 MEMO_COLS = ["memo_id", "title", "content"]

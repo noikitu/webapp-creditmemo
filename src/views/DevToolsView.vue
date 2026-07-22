@@ -58,7 +58,7 @@
       if (d.status !== 'ok') throw new Error(d.message || 'extraction failed');
       columns.value = d.columns || [];
       rows.value = d.rows || [];
-      toast.success(`KPI Extraction finished — ${rows.value.length} row(s) in input_KPI.`);
+      toast.success(`KPI Extraction + BUILD_METRICS finished — ${rows.value.length} row(s) in input_KPI.`);
     } catch (e) {
       extractError.value = (e as Error).message || 'Unknown error';
       toast.error('KPI Extraction failed.');

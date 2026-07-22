@@ -33,6 +33,7 @@ from ..config import (
     METRICS_FOLDER,
     OUTPUT_KPI_DATASET,
     PDF_FOLDER,
+    SCENARIO_BUILD_METRICS,
     STRUCT_COLS,
 )
 
@@ -793,7 +794,7 @@ def add_metrics():
         folder = dataiku.Folder(METRICS_FOLDER)
         for f in files:
             folder.upload_stream(f.filename, f.read())
-        dataiku.api_client().get_default_project().get_scenario("BUILD_METRICS").run_and_wait()
+        dataiku.api_client().get_default_project().get_scenario(SCENARIO_BUILD_METRICS).run_and_wait()
         return jsonify({"status": "ok", "items": read_metrics_catalog()})
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
@@ -820,6 +821,18 @@ def run_kpi_extraction():
         agent.as_llm().new_completion().with_message(
             "Extract the KPIs from the source documents into the input_KPI dataset."
         ).execute()
+
+        # Once the agent is done, build downstream (BUILD_METRICS scenario).
+        try:
+            project.get_scenario(SCENARIO_BUILD_METRICS).run_and_wait()
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            return jsonify({
+                "status": "error",
+                "message": "Agent finished, but scenario %s failed: %s" % (SCENARIO_BUILD_METRICS, exc),
+                **_input_kpi_state(),
+            }), 200
+
         return jsonify({"status": "ok", **_input_kpi_state()})
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
