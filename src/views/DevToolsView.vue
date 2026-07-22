@@ -147,13 +147,13 @@
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <TransitionGroup tag="tbody" name="row">
               <tr v-for="(row, ri) in rows.slice(0, MAX_ROWS)" :key="ri" class="odd:bg-muted/30">
                 <td v-for="(cell, ci) in row" :key="ci" class="border-b px-3 py-1.5 whitespace-nowrap">
                   {{ fmt(cell) }}
                 </td>
               </tr>
-            </tbody>
+            </TransitionGroup>
           </table>
           <div v-else class="py-10 text-center text-sm text-muted-foreground">
             {{ loading ? 'Loading…' : 'input_KPI is empty or unavailable.' }}
@@ -189,6 +189,14 @@
 </template>
 
 <style scoped>
+  /* New input_KPI rows fade + slide in as the agent writes them */
+  .row-enter-active { transition: opacity .3s ease, transform .3s ease; }
+  .row-enter-from { opacity: 0; transform: translateY(-4px); }
+  .row-move { transition: transform .3s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .row-enter-active, .row-move { transition: none; }
+  }
+
   .dev-error {
     margin: 0; max-height: 30vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
     font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
