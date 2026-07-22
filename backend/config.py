@@ -25,8 +25,9 @@ METRIC_COL_SUFFIX = "_metric_value_first"  # wide-table column suffix for a metr
 PDF_FOLDER = "8aTKpXsk"           # "Previous Memos PDF": cleared & filled on import
 METRICS_FOLDER = "tiSmyWaP"       # "Documents Metrics": metric documents dropped here
 
-# Agent
-AGENT_NAME = "Credit Memo"        # DSS agent name (or id)
+# Agents (name or id)
+AGENT_NAME = "Credit Memo"            # writes the memo paragraphs
+KPI_EXTRACTION_AGENT = "KPI Extraction"  # fills input_KPI from the source documents
 
 # Schemas
 STRUCT_COLS = ["memo_id", "title", "description", "metrics"]

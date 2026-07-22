@@ -30,12 +30,12 @@ async function http<T>(path: string, opts?: RequestInit, timeout = 60000): Promi
 }
 
 const get = <T>(p: string, timeout?: number) => http<T>(p, undefined, timeout);
-const postJson = <T>(p: string, body?: unknown) =>
+const postJson = <T>(p: string, body?: unknown, timeout?: number) =>
   http<T>(p, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body == null ? undefined : JSON.stringify(body),
-  });
+  }, timeout);
 const postForm = <T>(p: string, form: FormData) =>
   http<T>(p, { method: 'POST', body: form });
 
@@ -99,6 +99,10 @@ export const api = {
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
   kpiFull: () => get<{ items: MergedKpi[] }>('/kpi_full'),
   inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
+  runKpiExtraction: () =>
+    postJson<{ status: string; message?: string; columns: string[]; rows: unknown[][] }>(
+      '/run_kpi_extraction', undefined, 600000,   // agent run: allow up to 10 min
+    ),
   cleanInputKpi: () =>
     postJson<{ status: string; message?: string; columns: string[]; rows: unknown[][]; cleared: string[] }>(
       '/clean_input_kpi',

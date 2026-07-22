@@ -19,6 +19,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from ..config import (
     AGENT_NAME,
+    KPI_EXTRACTION_AGENT,
     ALL_KPI_DATASET,
     DATA_FOLDER,
     DATASET_NAME,
@@ -62,11 +63,15 @@ def memo_mask(df, memo_id):
     return df["memo_id"].fillna("").astype(str).str.strip().str.lower() == memo_id.strip().lower()
 
 
-def find_agent(project):
+def find_named_agent(project, name_or_id):
     for agent in project.list_agents():
-        if agent.name == AGENT_NAME or agent.id == AGENT_NAME:
+        if agent.name == name_or_id or agent.id == name_or_id:
             return project.get_agent(agent.id)
-    raise ValueError("Agent not found: %s" % AGENT_NAME)
+    raise ValueError("Agent not found: %s" % name_or_id)
+
+
+def find_agent(project):
+    return find_named_agent(project, AGENT_NAME)
 
 
 def list_memos():
@@ -790,6 +795,32 @@ def add_metrics():
             folder.upload_stream(f.filename, f.read())
         dataiku.api_client().get_default_project().get_scenario("BUILD_METRICS").run_and_wait()
         return jsonify({"status": "ok", "items": read_metrics_catalog()})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+def _input_kpi_state():
+    df = read_df(INPUT_KPI_DATASET)
+    if df is None:
+        return {"columns": [], "rows": []}
+    safe = df.astype(object).where(pd.notna(df), None)
+    return {"columns": [str(c) for c in safe.columns], "rows": safe.values.tolist()}
+
+
+@memo_api.route("/run_kpi_extraction", methods=["POST"])
+def run_kpi_extraction():
+    """Run the "KPI Extraction" agent, which fills the input_KPI dataset.
+
+    Blocking call; the frontend polls /input_kpi meanwhile to show rows as the
+    agent writes them."""
+    try:
+        project = dataiku.api_client().get_default_project()
+        agent = find_named_agent(project, KPI_EXTRACTION_AGENT)
+        agent.as_llm().new_completion().with_message(
+            "Extract the KPIs from the source documents into the input_KPI dataset."
+        ).execute()
+        return jsonify({"status": "ok", **_input_kpi_state()})
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(exc)}), 500

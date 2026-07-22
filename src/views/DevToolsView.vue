@@ -1,7 +1,7 @@
 <script setup lang="ts">
-  import { ref, onMounted } from 'vue';
+  import { ref, onMounted, onBeforeUnmount } from 'vue';
   import { toast } from 'vue-sonner';
-  import { Eraser, RefreshCw, Database, AlertTriangle } from 'lucide-vue-next';
+  import { Eraser, RefreshCw, Database, AlertTriangle, Sparkles } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import {
@@ -17,6 +17,8 @@
   const loading = ref(false);
   const cleaning = ref(false);
   const confirmOpen = ref(false);
+  const extracting = ref(false);
+  let poll: number | undefined;
 
   function fmt(v: unknown): string {
     return v == null || v === '' ? '' : String(v);
@@ -38,6 +40,31 @@
     }
   }
 
+  async function runExtraction() {
+    if (extracting.value) return;
+    extracting.value = true;
+    // Show rows appear live while the agent writes to input_KPI.
+    poll = window.setInterval(async () => {
+      try {
+        const d = await api.inputKpi();
+        columns.value = d.columns || [];
+        rows.value = d.rows || [];
+      } catch { /* ignore transient errors */ }
+    }, 1500);
+    try {
+      const d = await api.runKpiExtraction();
+      if (d.status !== 'ok') throw new Error(d.message || 'extraction failed');
+      columns.value = d.columns || [];
+      rows.value = d.rows || [];
+      toast.success(`KPI Extraction finished — ${rows.value.length} row(s) in input_KPI.`);
+    } catch (e) {
+      toast.error('KPI Extraction failed: ' + (e as Error).message);
+    } finally {
+      if (poll) { window.clearInterval(poll); poll = undefined; }
+      extracting.value = false;
+    }
+  }
+
   async function doClean() {
     cleaning.value = true;
     try {
@@ -55,6 +82,7 @@
   }
 
   onMounted(refresh);
+  onBeforeUnmount(() => { if (poll) window.clearInterval(poll); });
 </script>
 
 <template>
@@ -78,10 +106,13 @@
             </p>
           </div>
           <div class="flex shrink-0 items-center gap-2">
-            <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="loading" @click="refresh">
+            <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="loading || extracting" @click="refresh">
               <RefreshCw :class="['h-4 w-4', { 'animate-spin': loading }]" />
             </Button>
-            <Button variant="destructive" :disabled="cleaning || loading" @click="confirmOpen = true">
+            <Button :disabled="extracting || cleaning" :class="{ 'run-sweep': extracting }" @click="runExtraction">
+              <Sparkles class="h-4 w-4" /> {{ extracting ? 'Extracting…' : 'Run KPI Extraction' }}
+            </Button>
+            <Button variant="destructive" :disabled="cleaning || loading || extracting" @click="confirmOpen = true">
               <Eraser class="h-4 w-4" /> Clean input_KPI
             </Button>
           </div>
@@ -139,3 +170,21 @@
     </Dialog>
   </div>
 </template>
+
+<style scoped>
+  /* Looping blue sweep while the KPI Extraction agent runs */
+  .run-sweep { position: relative; overflow: hidden; }
+  .run-sweep::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, rgba(112, 146, 242, .85) 50%, transparent 100%);
+    transform: translateX(-120%);
+    animation: run-sweep-anim 1.1s linear infinite;
+  }
+  @keyframes run-sweep-anim {
+    from { transform: translateX(-120%); }
+    to   { transform: translateX(120%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .run-sweep::after { animation: none; }
+  }
+</style>
