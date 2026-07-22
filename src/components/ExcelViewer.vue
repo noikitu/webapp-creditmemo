@@ -42,13 +42,17 @@
         <thead>
           <tr>
             <th class="excel-corner"></th>
-            <th v-for="(c, ci) in current.columns" :key="ci">{{ c }}</th>
+            <th v-for="(c, ci) in current.columns" :key="ci">
+              <span class="excel-cell" :title="c">{{ c }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(row, ri) in current.rows" :key="ri">
             <td class="excel-rownum">{{ ri + 1 }}</td>
-            <td v-for="(cell, ci) in row" :key="ci" :class="{ 'excel-hit': isHit(cell) }">{{ cell }}</td>
+            <td v-for="(cell, ci) in row" :key="ci" :class="{ 'excel-hit': isHit(cell) }">
+              <span class="excel-cell" :title="cell">{{ cell }}</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -79,7 +83,12 @@
   .excel-table { border-collapse: separate; border-spacing: 0; font-size: .8rem; width: max-content; min-width: 100%; }
   .excel-table th, .excel-table td {
     border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    padding: .3rem .6rem; text-align: left; white-space: nowrap; vertical-align: top;
+    padding: .3rem .6rem; text-align: left; vertical-align: top;
+  }
+  /* Fixed, narrow column width — content is truncated (full value on hover) */
+  .excel-cell {
+    display: block; max-width: 160px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .excel-table thead th {
     position: sticky; top: 0; z-index: 2;
