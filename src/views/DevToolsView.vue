@@ -49,8 +49,11 @@
     poll = window.setInterval(async () => {
       try {
         const d = await api.inputKpi();
-        columns.value = d.columns || [];
-        rows.value = d.rows || [];
+        // Skip transient empty reads (dataset caught mid-write): keep the last snapshot.
+        if ((d.columns?.length || 0) > 0 || (d.rows?.length || 0) > 0) {
+          columns.value = d.columns || [];
+          rows.value = d.rows || [];
+        }
       } catch { /* ignore transient errors */ }
     }, 1500);
     try {
@@ -156,7 +159,7 @@
             </TransitionGroup>
           </table>
           <div v-else class="py-10 text-center text-sm text-muted-foreground">
-            {{ loading ? 'Loading…' : 'input_KPI is empty or unavailable.' }}
+            {{ loading || extracting ? 'Waiting for the agent…' : 'input_KPI is empty or unavailable.' }}
           </div>
         </div>
         <div v-if="rows.length" class="text-xs text-muted-foreground">
