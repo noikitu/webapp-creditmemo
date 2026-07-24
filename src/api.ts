@@ -58,10 +58,11 @@ export interface MemoPayload { memo_title: string; blocks: Array<{ title: string
 export interface KpiSource { source: string; quote: string }
 export interface KpiMetric { metric: string; sources: KpiSource[] }
 export interface KpiValue { fiscal_year: number | string | null; kpi_value: number | string | null }
+export interface CustomKpi { kpi: string; category: string; formula: string }
 export interface MergedKpi {
   kpi: string;
   category: string;
-  type: 'computed' | 'input';
+  type: 'computed' | 'input' | 'custom';
   formula?: string;
   metrics?: KpiMetric[];
   sources?: KpiSource[];
@@ -106,6 +107,13 @@ export const api = {
   runPython: (code: string) =>
     postJson<{ status: string; image?: string; message?: string }>('/run_python', { code }),
   kpiFull: () => get<{ items: MergedKpi[] }>('/kpi_full'),
+  customKpis: () => get<{ items: CustomKpi[] }>('/custom_kpi'),
+  addCustomKpi: (p: CustomKpi) =>
+    postJson<{ status: string; message?: string; items: CustomKpi[] }>('/custom_kpi', p),
+  deleteCustomKpi: (kpi: string) =>
+    postJson<{ status: string; items: CustomKpi[] }>('/delete_custom_kpi', { kpi }),
+  customKpiPreview: (formula: string) =>
+    postJson<{ values: KpiValue[]; message?: string }>('/custom_kpi_preview', { formula }),
   inputKpi: () => get<{ columns: string[]; rows: unknown[][] }>('/input_kpi'),
   runKpiExtraction: () =>
     postJson<{ status: string; message?: string; columns: string[]; rows: unknown[][] }>(

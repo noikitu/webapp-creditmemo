@@ -438,9 +438,8 @@ def get_kpi_lineage():
     return jsonify({"kpis": kpis, "formulas_found": len(formulas)})
 
 
-@memo_api.route("/kpi_full")
-def get_kpi_full():
-    """Merged KPI catalog from all_KPI.
+def _kpi_catalog_items():
+    """Merged KPI catalog from all_KPI (list of item dicts).
 
     - KPIs computed by the prepare recipe (present in output_KPI) get the full
       lineage: formula, metrics used, and their source documents.
@@ -544,7 +543,172 @@ def get_kpi_full():
             items.append({"kpi": e["kpi"], "category": e["category"], "type": "input",
                           "sources": (sources.get(k) or {}).get("sources", []),
                           "values": e["values"] or input_values.get(k, [])})
-    return jsonify({"items": items})
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Custom KPIs (user-defined formulas over existing KPIs; stored as a project var)
+# ---------------------------------------------------------------------------
+import ast  # noqa: E402
+import operator as _op  # noqa: E402
+
+_CUSTOM_VAR = "credit_memo_custom_kpis"
+_ALLOWED_BINOPS = {
+    ast.Add: _op.add, ast.Sub: _op.sub, ast.Mult: _op.mul,
+    ast.Div: _op.truediv, ast.Mod: _op.mod, ast.Pow: _op.pow,
+}
+
+
+def _get_custom_kpis():
+    try:
+        proj = dataiku.api_client().get_default_project()
+        variables = proj.get_variables()
+        return (variables.get("standard", {}) or {}).get(_CUSTOM_VAR, []) or []
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return []
+
+
+def _set_custom_kpis(items):
+    proj = dataiku.api_client().get_default_project()
+    variables = proj.get_variables()
+    variables.setdefault("standard", {})[_CUSTOM_VAR] = items
+    proj.set_variables(variables)
+
+
+def _eval_arith(expr):
+    """Safely evaluate an arithmetic expression (numbers + - * / % ** and parens)."""
+    def ev(node):
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_BINOPS:
+            return _ALLOWED_BINOPS[type(node.op)](ev(node.left), ev(node.right))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            v = ev(node.operand)
+            return v if isinstance(node.op, ast.UAdd) else -v
+        raise ValueError("unsupported expression")
+    return ev(ast.parse(expr, mode="eval"))
+
+
+def _values_map(items):
+    """{normalized_kpi_name: {fiscal_year_str: float}} from catalog items."""
+    out = {}
+    for it in items:
+        bucket = out.setdefault(_norm_key(it.get("kpi", "")), {})
+        for v in it.get("values", []) or []:
+            val = v.get("kpi_value")
+            if val is None or val == "":
+                continue
+            try:
+                bucket[str(v.get("fiscal_year"))] = float(val)
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _compute_custom(formula, vmap):
+    """Evaluate a custom formula (referencing [KPI Name]) per fiscal year."""
+    refs = re.findall(r"\[([^\]]+)\]", formula or "")
+    if not refs:
+        return []
+    per = {}
+    for r in refs:
+        m = vmap.get(_norm_key(r))
+        if not m:
+            return []  # a referenced KPI has no values -> cannot compute
+        per[r] = m
+    years = set()
+    for r in refs:
+        years |= set(per[r].keys())
+    out = []
+    for y in sorted(years, key=lambda x: str(x)):
+        expr = formula
+        ok = True
+        for r in refs:
+            v = per[r].get(y)
+            if v is None:
+                ok = False
+                break
+            expr = expr.replace("[" + r + "]", "(" + repr(float(v)) + ")")
+        if not ok:
+            continue
+        try:
+            res = _eval_arith(expr)
+        except Exception:  # noqa: BLE001
+            continue
+        out.append({"fiscal_year": y, "kpi_value": round(float(res), 4)})
+    return out
+
+
+def _append_custom_kpis(items):
+    customs = _get_custom_kpis()
+    if not customs:
+        return items
+    vmap = _values_map(items)
+    for c in customs:
+        items.append({
+            "kpi": c.get("kpi", ""),
+            "category": c.get("category", "") or "Custom",
+            "type": "custom",
+            "formula": c.get("formula", ""),
+            "metrics": [],
+            "values": _compute_custom(c.get("formula", ""), vmap),
+        })
+    return items
+
+
+@memo_api.route("/kpi_full")
+def get_kpi_full():
+    return jsonify({"items": _append_custom_kpis(_kpi_catalog_items())})
+
+
+@memo_api.route("/custom_kpi", methods=["GET"])
+def list_custom_kpi():
+    return jsonify({"items": _get_custom_kpis()})
+
+
+@memo_api.route("/custom_kpi_preview", methods=["POST"])
+def custom_kpi_preview():
+    """Compute a formula without saving (live preview in the editor)."""
+    try:
+        formula = ((request.get_json(force=True) or {}).get("formula") or "").strip()
+        values = _compute_custom(formula, _values_map(_kpi_catalog_items()))
+        return jsonify({"values": values})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc), "values": []}), 200
+
+
+@memo_api.route("/custom_kpi", methods=["POST"])
+def add_custom_kpi():
+    try:
+        payload = request.get_json(force=True) or {}
+        kpi = (payload.get("kpi") or "").strip()
+        category = (payload.get("category") or "").strip() or "Custom"
+        formula = (payload.get("formula") or "").strip()
+        if not kpi or not formula:
+            return jsonify({"status": "error", "message": "kpi and formula are required"}), 400
+        customs = [c for c in _get_custom_kpis() if c.get("kpi", "").strip().lower() != kpi.lower()]
+        customs.append({"kpi": kpi, "category": category, "formula": formula})
+        _set_custom_kpis(customs)
+        return jsonify({"status": "ok", "items": customs})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@memo_api.route("/delete_custom_kpi", methods=["POST"])
+def delete_custom_kpi():
+    try:
+        kpi = ((request.get_json(force=True) or {}).get("kpi") or "").strip()
+        customs = [c for c in _get_custom_kpis() if c.get("kpi", "").strip().lower() != kpi.lower()]
+        _set_custom_kpis(customs)
+        return jsonify({"status": "ok", "items": customs})
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(exc)}), 500
 
 
 @memo_api.route("/recipe_debug")
