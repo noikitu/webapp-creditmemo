@@ -63,10 +63,84 @@
   const preview = ref<KpiValue[]>([]);
   const previewMsg = ref('');
   const saving = ref(false);
-  let previewTimer: number | undefined;
 
   // KPIs usable in a formula: everything with values, except other custom ones.
   const refKpis = computed(() => kpis.value.filter((k) => k.type !== 'custom' && hasValues(k)));
+
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // {normalized name: {fiscal_year: value}} from the already-loaded catalog.
+  const valuesMap = computed<Record<string, Record<string, number>>>(() => {
+    const m: Record<string, Record<string, number>> = {};
+    for (const k of kpis.value) {
+      if (k.type === 'custom') continue;
+      const b = m[norm(k.kpi)] || (m[norm(k.kpi)] = {});
+      for (const v of k.values || []) {
+        if (v.kpi_value == null || v.kpi_value === '') continue;
+        const n = Number(v.kpi_value);
+        if (Number.isFinite(n)) b[String(v.fiscal_year)] = n;
+      }
+    }
+    return m;
+  });
+
+  // Tiny safe arithmetic evaluator (+ - * / and parentheses, unary +/-). No eval().
+  function evalArith(src: string): number {
+    let i = 0;
+    const skip = () => { while (i < src.length && src[i] === ' ') i++; };
+    const expr = (): number => {
+      let v = term();
+      for (;;) { skip(); const c = src[i];
+        if (c === '+') { i++; v += term(); } else if (c === '-') { i++; v -= term(); } else break; }
+      return v;
+    };
+    const term = (): number => {
+      let v = factor();
+      for (;;) { skip(); const c = src[i];
+        if (c === '*') { i++; v *= factor(); } else if (c === '/') { i++; v /= factor(); } else break; }
+      return v;
+    };
+    const factor = (): number => {
+      skip(); const c = src[i];
+      if (c === '+') { i++; return factor(); }
+      if (c === '-') { i++; return -factor(); }
+      if (c === '(') { i++; const v = expr(); skip(); if (src[i] !== ')') throw new Error('paren'); i++; return v; }
+      const start = i;
+      while (i < src.length && /[0-9.]/.test(src[i])) i++;
+      if (i === start) throw new Error('number');
+      const n = Number(src.slice(start, i));
+      if (!Number.isFinite(n)) throw new Error('nan');
+      return n;
+    };
+    const r = expr(); skip();
+    if (i < src.length) throw new Error('trailing');
+    return r;
+  }
+
+  function computePreview(formula: string): KpiValue[] {
+    const refs = [...formula.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
+    if (!refs.length) return [];
+    const vmap = valuesMap.value;
+    const per: Record<string, Record<string, number>> = {};
+    for (const r of refs) { const m = vmap[norm(r)]; if (!m) return []; per[r] = m; }
+    const years = new Set<string>();
+    for (const r of refs) Object.keys(per[r]).forEach((y) => years.add(y));
+    const out: KpiValue[] = [];
+    for (const y of [...years].sort()) {
+      let e = formula; let ok = true;
+      for (const r of refs) {
+        const v = per[r][y];
+        if (v == null) { ok = false; break; }
+        e = e.split(`[${r}]`).join(`(${v})`);
+      }
+      if (!ok) continue;
+      try {
+        const val = evalArith(e);
+        if (Number.isFinite(val)) out.push({ fiscal_year: y, kpi_value: Math.round(val * 10000) / 10000 });
+      } catch { /* invalid formula for this year */ }
+    }
+    return out;
+  }
 
   function openBuilder() {
     cName.value = ''; cCategory.value = 'Custom'; cFormula.value = '';
@@ -79,19 +153,12 @@
   }
   function insertToken(tok: string) { cFormula.value += tok; }
 
+  // Live preview computed client-side from loaded values (no backend call).
   watch(cFormula, () => {
-    window.clearTimeout(previewTimer);
-    previewTimer = window.setTimeout(async () => {
-      const f = cFormula.value.trim();
-      if (!f) { preview.value = []; previewMsg.value = ''; return; }
-      try {
-        const d = await api.customKpiPreview(f);
-        preview.value = d.values || [];
-        previewMsg.value = d.values && d.values.length ? '' : 'No values — check the formula and referenced KPIs.';
-      } catch (e) {
-        preview.value = []; previewMsg.value = (e as Error).message;
-      }
-    }, 400);
+    const f = cFormula.value.trim();
+    if (!f) { preview.value = []; previewMsg.value = ''; return; }
+    preview.value = computePreview(f);
+    previewMsg.value = preview.value.length ? '' : 'No values — check the formula and that referenced KPIs have values.';
   });
 
   async function saveCustom() {
