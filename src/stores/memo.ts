@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { api, type KpiOption } from '@/api';
+import { api, type KpiOption, type MergedKpi } from '@/api';
 
 export interface Block { id: number; title: string; description: string; metrics: string[]; }
 export interface Memo { title: string; blocks: Block[]; generated: Record<string, string>; }
@@ -104,6 +104,8 @@ export const useMemoStore = defineStore('memo', {
   state: () => ({
     booted: false,
     backendReady: false,
+    kpiCatalog: [] as MergedKpi[],         // full KPI catalog (cached, loaded once)
+    kpiLoaded: false,                      // has the catalog been fetched?
     kpiOptions: [] as KpiOption[],         // selectable KPIs (all_KPI dataset)
     memos: [] as string[],                 // ordered memo titles (sidebar)
     store: {} as Record<string, Memo>,     // loaded memos, keyed by title
@@ -120,21 +122,41 @@ export const useMemoStore = defineStore('memo', {
       if (this.booted) return;
       this.booted = true;
       try {
-        const [k, mm] = await Promise.all([api.kpiFull(), api.memos()]);
-        // Only offer KPIs that actually have values (skip empty ones).
-        this.kpiOptions = (k.items || [])
-          .filter((it) => (it.values || []).some((v) => v.kpi_value != null && v.kpi_value !== ''))
-          .map((it) => ({ kpi: it.kpi, category: it.category }));
+        const mm = await api.memos();
         this.memos = mm.memos;
         this.backendReady = true;
+        await this.loadKpis();
         if (this.memos.length) await this.selectMemo(this.memos[0]);
         else this.newMemo();
       } catch {
         // No DSS backend (local dev): fall back to mock data.
         const s = mockSeed();
         this.kpiOptions = MOCK_KPIS;
+        this.kpiCatalog = MOCK_KPIS.map((o) => ({ kpi: o.kpi, category: o.category, type: 'input', values: [] })) as MergedKpi[];
+        this.kpiLoaded = true;
         this.store = s.store; this.memos = s.memos;
         this.current = this.store[this.memos[0]] || null;
+      }
+    },
+
+    // KPI catalog is fetched once and cached; pass force to refresh it
+    // (e.g. after adding or deleting a custom KPI). Also feeds the Builder picker.
+    async loadKpis(force = false): Promise<void> {
+      if (this.kpiLoaded && !force) return;
+      try {
+        const k = await api.kpiFull();
+        this.kpiCatalog = k.items || [];
+        // Only offer KPIs that actually have values (skip empty ones).
+        this.kpiOptions = this.kpiCatalog
+          .filter((it) => (it.values || []).some((v) => v.kpi_value != null && v.kpi_value !== ''))
+          .map((it) => ({ kpi: it.kpi, category: it.category }));
+        this.kpiLoaded = true;
+        this.backendReady = true;
+      } catch {
+        if (!this.kpiLoaded) {
+          this.kpiOptions = MOCK_KPIS;
+          this.kpiCatalog = MOCK_KPIS.map((o) => ({ kpi: o.kpi, category: o.category, type: 'input', values: [] })) as MergedKpi[];
+        }
       }
     },
 

@@ -11,6 +11,7 @@ Multi-memo: every row is scoped by memo_id (= the memo title).
 """
 import json
 import re
+import time
 import traceback
 
 import dataiku
@@ -659,9 +660,31 @@ def _append_custom_kpis(items):
     return items
 
 
+# In-process cache for the (expensive) base catalog: recipe parse + dataset
+# reads. TTL guards against out-of-band dataset changes; writes invalidate it.
+_CATALOG_CACHE = {"ts": 0.0, "items": None}
+_CATALOG_TTL = 60.0
+
+
+def _cached_catalog():
+    now = time.time()
+    if _CATALOG_CACHE["items"] is not None and (now - _CATALOG_CACHE["ts"]) < _CATALOG_TTL:
+        return _CATALOG_CACHE["items"]
+    items = _kpi_catalog_items()
+    _CATALOG_CACHE["items"] = items
+    _CATALOG_CACHE["ts"] = now
+    return items
+
+
+def _invalidate_catalog():
+    _CATALOG_CACHE["items"] = None
+
+
 @memo_api.route("/kpi_full")
 def get_kpi_full():
-    return jsonify({"items": _append_custom_kpis(_kpi_catalog_items())})
+    # Custom KPIs (read fresh each call) are appended to a COPY so the cached
+    # base list isn't polluted.
+    return jsonify({"items": _append_custom_kpis(list(_cached_catalog()))})
 
 
 @memo_api.route("/custom_kpi", methods=["GET"])
@@ -985,6 +1008,7 @@ def run_kpi_extraction():
         agent.as_llm().new_completion().with_message(
             "Extract the KPIs from the source documents into the input_KPI dataset."
         ).execute()
+        _invalidate_catalog()   # input_KPI (and, after the scenario, output_KPI) changed
 
         # Once the agent is done, build downstream (BUILD_METRICS scenario).
         try:
@@ -1018,6 +1042,7 @@ def clean_input_kpi():
         for col in cleared:
             df[col] = None
         dataiku.Dataset(INPUT_KPI_DATASET).write_with_schema(df)
+        _invalidate_catalog()
         safe = df.astype(object).where(pd.notna(df), None)
         return jsonify({
             "status": "ok",

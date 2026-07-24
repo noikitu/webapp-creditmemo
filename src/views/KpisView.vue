@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { ref, computed, onMounted, watch } from 'vue';
   import { toast } from 'vue-sonner';
-  import { FileSearch, Sigma, FunctionSquare, Plus, Trash2 } from 'lucide-vue-next';
+  import { FileSearch, Sigma, FunctionSquare, Plus, Trash2, RefreshCw } from 'lucide-vue-next';
   import { Card, CardContent } from '@/components/ui/card';
   import { Button } from '@/components/ui/button';
   import { Input } from '@/components/ui/input';
@@ -10,11 +10,11 @@
   } from '@/components/ui/dialog';
   import DocumentDialog from '@/components/DocumentDialog.vue';
   import { api, type MergedKpi, type KpiValue } from '@/api';
+  import { useMemoStore } from '@/stores/memo';
   import { cn } from '@/lib/utils';
 
-  const kpis = ref<MergedKpi[]>([]);
-  const loading = ref(true);
-  const selected = ref<MergedKpi | null>(null);
+  const store = useMemoStore();
+  const loading = ref(!store.kpiLoaded);
 
   const open = ref(false);
   const activeDoc = ref('');
@@ -25,16 +25,13 @@
     return (k.values || []).some((v) => v.kpi_value != null && v.kpi_value !== '');
   }
 
-  async function load(keepSelection = false) {
-    try {
-      const d = await api.kpiFull();
-      const prev = selected.value?.kpi;
-      kpis.value = (d.items || []).filter((k) => k.type === 'custom' || hasValues(k));
-      selected.value = (keepSelection && prev ? kpis.value.find((k) => k.kpi === prev) : null)
-        || kpis.value[0] || null;
-    } catch { /* backend unavailable */ }
-    loading.value = false;
-  }
+  // Sourced from the cached catalog in the store — no re-fetch on every mount.
+  const kpis = computed(() => store.kpiCatalog.filter((k) => k.type === 'custom' || hasValues(k)));
+
+  const selectedName = ref('');
+  const selected = computed<MergedKpi | null>(
+    () => kpis.value.find((k) => k.kpi === selectedName.value) || kpis.value[0] || null,
+  );
 
   const categories = computed(() => {
     const seen: string[] = [];
@@ -55,6 +52,12 @@
     return t === 'computed' ? 'Computed' : t === 'custom' ? 'Custom' : 'Extracted';
   }
 
+  async function refresh() {
+    loading.value = true;
+    await store.loadKpis(true);
+    loading.value = false;
+  }
+
   // ---- Custom KPI builder --------------------------------------------------
   const builderOpen = ref(false);
   const cName = ref('');
@@ -69,10 +72,10 @@
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  // {normalized name: {fiscal_year: value}} from the already-loaded catalog.
+  // {normalized name: {fiscal_year: value}} from the cached catalog.
   const valuesMap = computed<Record<string, Record<string, number>>>(() => {
     const m: Record<string, Record<string, number>> = {};
-    for (const k of kpis.value) {
+    for (const k of store.kpiCatalog) {
       if (k.type === 'custom') continue;
       const b = m[norm(k.kpi)] || (m[norm(k.kpi)] = {});
       for (const v of k.values || []) {
@@ -153,7 +156,7 @@
   }
   function insertToken(tok: string) { cFormula.value += tok; }
 
-  // Live preview computed client-side from loaded values (no backend call).
+  // Live preview computed client-side from cached values (no backend call).
   watch(cFormula, () => {
     const f = cFormula.value.trim();
     if (!f) { preview.value = []; previewMsg.value = ''; return; }
@@ -171,10 +174,11 @@
         kpi: cName.value.trim(), category: cCategory.value.trim() || 'Custom', formula: cFormula.value.trim(),
       });
       if (d.status !== 'ok') throw new Error(d.message || 'save failed');
+      const name = cName.value.trim();
       builderOpen.value = false;
-      await load(true);
-      selected.value = kpis.value.find((k) => k.kpi === cName.value.trim()) || selected.value;
-      toast.success(`Custom KPI « ${cName.value.trim()} » added.`);
+      await store.loadKpis(true);
+      selectedName.value = name;
+      toast.success(`Custom KPI « ${name} » added.`);
     } catch (e) {
       toast.error('Could not add KPI: ' + (e as Error).message);
     } finally {
@@ -185,14 +189,15 @@
   async function deleteCustom(k: MergedKpi) {
     try {
       await api.deleteCustomKpi(k.kpi);
-      await load();
+      if (selectedName.value === k.kpi) selectedName.value = '';
+      await store.loadKpis(true);
       toast.success(`Custom KPI « ${k.kpi} » removed.`);
     } catch (e) {
       toast.error('Could not remove KPI: ' + (e as Error).message);
     }
   }
 
-  onMounted(() => load());
+  onMounted(async () => { await store.loadKpis(); loading.value = false; });
 </script>
 
 <template>
@@ -205,9 +210,14 @@
           extracted metrics show their source documents; custom KPIs are computed from a formula.
         </p>
       </div>
-      <Button variant="outline" class="shrink-0" @click="openBuilder">
-        <Plus class="h-4 w-4" /> Custom KPI
-      </Button>
+      <div class="flex shrink-0 items-center gap-2">
+        <Button variant="ghost" size="icon" class="h-9 w-9" :disabled="loading" @click="refresh">
+          <RefreshCw :class="['h-4 w-4', { 'animate-spin': loading }]" />
+        </Button>
+        <Button variant="outline" @click="openBuilder">
+          <Plus class="h-4 w-4" /> Custom KPI
+        </Button>
+      </div>
     </div>
 
     <div v-if="kpis.length" class="grid grid-cols-3 gap-6">
@@ -217,7 +227,7 @@
           <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">{{ c || 'Other' }}</div>
           <div class="space-y-1">
             <button v-for="k in inCategory(c)" :key="k.kpi" type="button"
-              @click="selected = k"
+              @click="selectedName = k.kpi"
               :class="cn('w-full flex items-center justify-between gap-2 text-left rounded-md px-3 py-2 text-sm transition-colors',
                 selected && selected.kpi === k.kpi ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent')">
               <span class="truncate">{{ k.kpi }}</span>
